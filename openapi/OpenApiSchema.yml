@@ -1,0 +1,1152 @@
+openapi: 3.1.0
+info:
+  title: RepoInsight Auth Service
+  description: 'Authentication, user management, and token issuance for RepoInsight.'
+  version: 1.0.0
+paths:
+  /api/v1/auth/signup:
+    post:
+      tags:
+        - Auth
+      summary: Signup
+      operationId: signup_api_v1_auth_signup_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignupRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Signup Api V1 Auth Signup Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/auth/verify-email:
+    post:
+      tags:
+        - Auth
+      summary: Verify Email
+      operationId: verify_email_api_v1_auth_verify_email_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailVerifyRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/auth/resend-verification:
+    post:
+      tags:
+        - Auth
+      summary: Resend Verification
+      operationId: resend_verification_api_v1_auth_resend_verification_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResendVerificationRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  '/api/v1/auth/login/{tenant_slug}':
+    post:
+      tags:
+        - Auth
+      summary: Login
+      operationId: login_api_v1_auth_login__tenant_slug__post
+      parameters:
+        - name: tenant_slug
+          in: path
+          required: true
+          schema:
+            type: string
+            title: Tenant Slug
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/auth/google:
+    get:
+      tags:
+        - Auth
+      summary: Google Login
+      operationId: google_login_api_v1_auth_google_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /api/v1/auth/google/callback:
+    get:
+      tags:
+        - Auth
+      summary: Google Callback
+      operationId: google_callback_api_v1_auth_google_callback_get
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+            title: Code
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/auth/refresh:
+    post:
+      tags:
+        - Auth
+      summary: Refresh Token
+      operationId: refresh_token_api_v1_auth_refresh_post
+      parameters:
+        - name: refresh_token
+          in: cookie
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: 'null'
+            title: Refresh Token
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+                - $ref: '#/components/schemas/RefreshRequest'
+                - type: 'null'
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/auth/logout:
+    post:
+      tags:
+        - Auth
+      summary: Logout
+      operationId: logout_api_v1_auth_logout_post
+      parameters:
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: 'null'
+            title: Authorization
+        - name: refresh_token
+          in: cookie
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: 'null'
+            title: Refresh Token
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+                - $ref: '#/components/schemas/RefreshRequest'
+                - type: 'null'
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/auth/logout-all:
+    post:
+      tags:
+        - Auth
+      summary: Logout All
+      operationId: logout_all_api_v1_auth_logout_all_post
+      parameters:
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: 'null'
+            title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/auth/s2s/token:
+    post:
+      tags:
+        - Auth
+      summary: Issue S2S Token
+      operationId: issue_s2s_token_api_v1_auth_s2s_token_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/S2STokenRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/S2STokenResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/users/me:
+    get:
+      tags:
+        - Users
+      summary: Get Me
+      operationId: get_me_api_v1_users_me_get
+      parameters:
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: 'null'
+            title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+        - Users
+      summary: Update Me
+      operationId: update_me_api_v1_users_me_patch
+      parameters:
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: 'null'
+            title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+        - Users
+      summary: Delete Me
+      operationId: delete_me_api_v1_users_me_delete
+      parameters:
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: 'null'
+            title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+                title: Response Delete Me Api V1 Users Me Delete
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  '/api/v1/users/{user_id}':
+    get:
+      tags:
+        - Users
+      summary: Get User
+      operationId: get_user_api_v1_users__user_id__get
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+            title: User Id
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: 'null'
+            title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+        - Users
+      summary: Delete User
+      operationId: delete_user_api_v1_users__user_id__delete
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+            title: User Id
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: 'null'
+            title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+                title: Response Delete User Api V1 Users  User Id  Delete
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/users/:
+    get:
+      tags:
+        - Users
+      summary: List Users
+      operationId: list_users_api_v1_users__get
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+            title: Limit
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+            title: Offset
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: 'null'
+            title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserResponse'
+                title: Response List Users Api V1 Users  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/tenants/me:
+    get:
+      tags:
+        - Tenants & Teams
+      summary: Get My Tenant
+      operationId: get_my_tenant_api_v1_tenants_me_get
+      parameters:
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: 'null'
+            title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/teams/:
+    post:
+      tags:
+        - Tenants & Teams
+        - Tenants & Teams
+      summary: Create Team
+      operationId: create_team_api_v1_teams__post
+      parameters:
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: 'null'
+            title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+        - Tenants & Teams
+        - Tenants & Teams
+      summary: List Teams
+      operationId: list_teams_api_v1_teams__get
+      parameters:
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: 'null'
+            title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TeamResponse'
+                title: Response List Teams Api V1 Teams  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  '/api/v1/teams/{team_id}':
+    get:
+      tags:
+        - Tenants & Teams
+        - Tenants & Teams
+      summary: Get Team
+      operationId: get_team_api_v1_teams__team_id__get
+      parameters:
+        - name: team_id
+          in: path
+          required: true
+          schema:
+            type: string
+            title: Team Id
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: 'null'
+            title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  '/api/v1/teams/{team_id}/members':
+    post:
+      tags:
+        - Tenants & Teams
+        - Tenants & Teams
+      summary: Add Team Member
+      operationId: add_team_member_api_v1_teams__team_id__members_post
+      parameters:
+        - name: team_id
+          in: path
+          required: true
+          schema:
+            type: string
+            title: Team Id
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: 'null'
+            title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamMemberAdd'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Add Team Member Api V1 Teams  Team Id  Members Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  '/api/v1/teams/{team_id}/members/{user_id}':
+    delete:
+      tags:
+        - Tenants & Teams
+        - Tenants & Teams
+      summary: Remove Team Member
+      operationId: remove_team_member_api_v1_teams__team_id__members__user_id__delete
+      parameters:
+        - name: team_id
+          in: path
+          required: true
+          schema:
+            type: string
+            title: Team Id
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+            title: User Id
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: 'null'
+            title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+                title: >-
+                  Response Remove Team Member Api V1 Teams  Team Id  Members 
+                  User Id  Delete
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/plans/:
+    get:
+      tags:
+        - Plans & Subscriptions
+      summary: List Plans
+      operationId: list_plans_api_v1_plans__get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/PlanResponse'
+                type: array
+                title: Response List Plans Api V1 Plans  Get
+  /api/v1/plans/subscription:
+    get:
+      tags:
+        - Plans & Subscriptions
+      summary: Get My Subscription
+      operationId: get_my_subscription_api_v1_plans_subscription_get
+      parameters:
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: 'null'
+            title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health
+      operationId: health_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                title: Response Health Health Get
+components:
+  schemas:
+    EmailVerifyRequest:
+      properties:
+        token:
+          type: string
+          title: Token
+      type: object
+      required:
+        - token
+      title: EmailVerifyRequest
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    LoginRequest:
+      properties:
+        email:
+          type: string
+          format: email
+          title: Email
+        password:
+          type: string
+          title: Password
+      type: object
+      required:
+        - email
+        - password
+      title: LoginRequest
+    MessageResponse:
+      properties:
+        message:
+          type: string
+          title: Message
+      type: object
+      required:
+        - message
+      title: MessageResponse
+    PlanResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        name:
+          type: string
+          title: Name
+        display_name:
+          type: string
+          title: Display Name
+        permissions:
+          items:
+            type: string
+          type: array
+          title: Permissions
+        max_repos:
+          type: integer
+          title: Max Repos
+        max_members:
+          type: integer
+          title: Max Members
+      type: object
+      required:
+        - id
+        - name
+        - display_name
+        - permissions
+        - max_repos
+        - max_members
+      title: PlanResponse
+    ProfileUpdate:
+      properties:
+        name:
+          anyOf:
+            - type: string
+              maxLength: 100
+              minLength: 1
+            - type: 'null'
+          title: Name
+        avatar_url:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Avatar Url
+      type: object
+      title: ProfileUpdate
+    RefreshRequest:
+      properties:
+        refresh_token:
+          type: string
+          title: Refresh Token
+      type: object
+      required:
+        - refresh_token
+      title: RefreshRequest
+    ResendVerificationRequest:
+      properties:
+        email:
+          type: string
+          format: email
+          title: Email
+      type: object
+      required:
+        - email
+      title: ResendVerificationRequest
+    S2STokenRequest:
+      properties:
+        service_name:
+          type: string
+          maxLength: 80
+          minLength: 1
+          title: Service Name
+        s2s_secret:
+          type: string
+          title: S2S Secret
+      type: object
+      required:
+        - service_name
+        - s2s_secret
+      title: S2STokenRequest
+    S2STokenResponse:
+      properties:
+        token:
+          type: string
+          title: Token
+        expires_in:
+          type: integer
+          title: Expires In
+      type: object
+      required:
+        - token
+        - expires_in
+      title: S2STokenResponse
+    SignupRequest:
+      properties:
+        email:
+          type: string
+          format: email
+          title: Email
+        password:
+          type: string
+          maxLength: 128
+          minLength: 8
+          title: Password
+        name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Name
+        tenant_name:
+          type: string
+          maxLength: 80
+          minLength: 2
+          title: Tenant Name
+      type: object
+      required:
+        - email
+        - password
+        - name
+        - tenant_name
+      title: SignupRequest
+    SubscriptionResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        tenant_id:
+          type: string
+          title: Tenant Id
+        plan_id:
+          type: string
+          title: Plan Id
+        plan_name:
+          type: string
+          title: Plan Name
+        status:
+          type: string
+          title: Status
+        current_period_end:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Current Period End
+      type: object
+      required:
+        - id
+        - tenant_id
+        - plan_id
+        - plan_name
+        - status
+        - current_period_end
+      title: SubscriptionResponse
+    TeamCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 80
+          minLength: 1
+          title: Name
+        description:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Description
+      type: object
+      required:
+        - name
+      title: TeamCreate
+    TeamMemberAdd:
+      properties:
+        user_id:
+          type: string
+          title: User Id
+        role:
+          type: string
+          enum:
+            - member
+            - lead
+          title: Role
+          default: member
+      type: object
+      required:
+        - user_id
+      title: TeamMemberAdd
+    TeamResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        tenant_id:
+          type: string
+          title: Tenant Id
+        name:
+          type: string
+          title: Name
+        description:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Description
+        created_by:
+          type: string
+          title: Created By
+        is_active:
+          type: boolean
+          title: Is Active
+        created_at:
+          type: string
+          title: Created At
+      type: object
+      required:
+        - id
+        - tenant_id
+        - name
+        - description
+        - created_by
+        - is_active
+        - created_at
+      title: TeamResponse
+    TenantResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        name:
+          type: string
+          title: Name
+        slug:
+          type: string
+          title: Slug
+        is_active:
+          type: boolean
+          title: Is Active
+        created_at:
+          type: string
+          title: Created At
+      type: object
+      required:
+        - id
+        - name
+        - slug
+        - is_active
+        - created_at
+      title: TenantResponse
+    TokenPair:
+      properties:
+        access_token:
+          type: string
+          title: Access Token
+        token_type:
+          type: string
+          enum:
+            - bearer
+          const: bearer
+          title: Token Type
+          default: bearer
+        expires_in:
+          type: integer
+          title: Expires In
+      type: object
+      required:
+        - access_token
+        - expires_in
+      title: TokenPair
+    UserResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        email:
+          type: string
+          title: Email
+        name:
+          type: string
+          title: Name
+        role:
+          type: string
+          title: Role
+        auth_provider:
+          type: string
+          title: Auth Provider
+        is_email_verified:
+          type: boolean
+          title: Is Email Verified
+        is_active:
+          type: boolean
+          title: Is Active
+        avatar_url:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Avatar Url
+        tenant_id:
+          type: string
+          title: Tenant Id
+        razorpay_customer_id:
+          anyOf:
+            - type: string
+            - type: 'null'
+          title: Razorpay Customer Id
+        created_at:
+          type: string
+          title: Created At
+        updated_at:
+          type: string
+          title: Updated At
+      type: object
+      required:
+        - id
+        - email
+        - name
+        - role
+        - auth_provider
+        - is_email_verified
+        - is_active
+        - avatar_url
+        - tenant_id
+        - razorpay_customer_id
+        - created_at
+        - updated_at
+      title: UserResponse
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+              - type: string
+              - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+        - loc
+        - msg
+        - type
+      title: ValidationError

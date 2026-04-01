@@ -1,0 +1,15 @@
+name = "repoinsight-auth"
+main = "worker.py"
+compatibility_date = "2026-04-02"
+compatibility_flags = ["python_workers"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "repoinsight-auth"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+[vars]
+DB_BACKEND = "d1_binding"
+D1_BINDING_NAME = "DB"
+APP_ENV = "production"
