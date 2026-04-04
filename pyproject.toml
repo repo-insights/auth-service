@@ -22,9 +22,3 @@ dependencies = [
 
 [tool.pywrangler]
 entrypoint = "worker.py"
-
-[dependency-groups]
-dev = [
-  "workers-py>=1.72.0",
-  "workers-runtime-sdk",
-]
