@@ -49,6 +49,14 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class SignupResponse(BaseModel):
+    user_id: str
+    email: EmailStr
+    tenant_id: str
+    tenant_slug: str
+    message: str
+
+
 class TokenPair(BaseModel):
     access_token: str
     token_type: Literal["bearer"] = "bearer"

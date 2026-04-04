@@ -19,6 +19,7 @@ from app.schemas.schemas import (
     S2STokenRequest,
     S2STokenResponse,
     SignupRequest,
+    SignupResponse,
     TokenPair,
 )
 from app.services import auth_service
@@ -35,8 +36,13 @@ _signup_limit = rate_limit("signup", max_requests=3, window_seconds=60)
 # Signup
 # ─────────────────────────────────────────
 
-@router.post("/signup", status_code=status.HTTP_201_CREATED, dependencies=[Depends(_signup_limit)])
-async def signup(data: SignupRequest, request: Request) -> dict:
+@router.post(
+    "/signup",
+    status_code=status.HTTP_201_CREATED,
+    response_model=SignupResponse,
+    dependencies=[Depends(_signup_limit)],
+)
+async def signup(data: SignupRequest, request: Request) -> SignupResponse:
     return await auth_service.signup(data, request)
 
 

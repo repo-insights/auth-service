@@ -24,6 +24,7 @@ from app.schemas.schemas import (
     GoogleUserInfo,
     LoginRequest,
     SignupRequest,
+    SignupResponse,
     TokenPair,
 )
 from app.services import (
@@ -93,7 +94,7 @@ async def _build_token_pair(user: dict, request: Request) -> tuple[TokenPair, st
 # Email/password signup
 # ─────────────────────────────────────────
 
-async def signup(data: SignupRequest, request: Request) -> dict[str, Any]:
+async def signup(data: SignupRequest, request: Request) -> SignupResponse:
     # Create tenant first
     tenant = await tenant_service.create_tenant(data.tenant_name)
     await tenant_service.create_default_subscription(tenant["id"])
@@ -123,11 +124,13 @@ async def signup(data: SignupRequest, request: Request) -> dict[str, Any]:
     await token_service.store_email_verification_token(raw_token, user["id"])
     await email_service.send_verification_email(user["email"], user["name"], raw_token)
 
-    return {
-        "user_id": user["id"],
-        "email": user["email"],
-        "message": "Account created — please verify your email before logging in",
-    }
+    return SignupResponse(
+        user_id=user["id"],
+        email=user["email"],
+        tenant_id=tenant["id"],
+        tenant_slug=tenant["slug"],
+        message="Account created — please verify your email before logging in",
+    )
 
 
 # ─────────────────────────────────────────
