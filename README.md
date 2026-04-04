@@ -167,8 +167,8 @@ This FastAPI app can also run on Vercel using the Python runtime.
 
 Files included for Vercel:
 
-- `api/index.py` as the Vercel entrypoint
-- `vercel.json` to route all requests to the FastAPI app
+- `index.py` as the Vercel FastAPI entrypoint
+- `vercel.json` for project-level Vercel configuration
 
 Recommended setup:
 
