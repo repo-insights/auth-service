@@ -1,4 +1,6 @@
 from functools import lru_cache
+
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -23,11 +25,11 @@ class Settings(BaseSettings):
     s2s_secret_key: str
     s2s_token_expire_minutes: int = 10
 
-    # Cloudflare D1 / Turso
-    d1_database_url: str = ""
-    d1_auth_token: str = ""
-    d1_database_tls: bool = True
-    d1_ssl_cert_file: str | None = None
+    # Turso / libsql
+    turso_database_url: str = Field(default="", validation_alias=AliasChoices("TURSO_DATABASE_URL", "D1_DATABASE_URL"))
+    turso_auth_token: str = Field(default="", validation_alias=AliasChoices("TURSO_AUTH_TOKEN", "D1_AUTH_TOKEN"))
+    turso_database_tls: bool = Field(default=True, validation_alias=AliasChoices("TURSO_DATABASE_TLS", "D1_DATABASE_TLS"))
+    turso_ssl_cert_file: str | None = Field(default=None, validation_alias=AliasChoices("TURSO_SSL_CERT_FILE", "D1_SSL_CERT_FILE"))
     db_backend: str = "libsql"
     d1_binding_name: str = "DB"
 

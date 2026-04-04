@@ -97,11 +97,11 @@ repoinsight-auth/
 cp .env.example .env
 # Fill in your values in .env
 # If local SSL verification fails, prefer a CA bundle:
-# D1_DATABASE_TLS=true
-# D1_SSL_CERT_FILE=/absolute/path/to/ca.pem
+# TURSO_DATABASE_TLS=true
+# TURSO_SSL_CERT_FILE=/absolute/path/to/ca.pem
 #
 # Temporary local-only workaround:
-# D1_DATABASE_TLS=false
+# TURSO_DATABASE_TLS=false
 
 # 2. Run migrations
 python3 scripts/migrate.py
@@ -129,8 +129,8 @@ pip install -r requirements.txt
 
 # 3. Configure .env
 # DB_BACKEND=libsql
-# D1_DATABASE_URL=libsql://<your-turso-or-libsql-endpoint>
-# D1_AUTH_TOKEN=<your-token>
+# TURSO_DATABASE_URL=libsql://<your-turso-or-libsql-endpoint>
+# TURSO_AUTH_TOKEN=<your-token>
 
 # 4. Apply migrations
 python3 scripts/migrate.py
@@ -158,6 +158,44 @@ The repo now includes:
 - `scripts/migrate_d1.sh` for D1 migrations via Wrangler
 
 Before Cloudflare deployment, replace `database_id` in `wrangler.toml` and confirm the D1 binding name matches `D1_BINDING_NAME`.
+
+---
+
+## Vercel Deployment
+
+This FastAPI app can also run on Vercel using the Python runtime.
+
+Files included for Vercel:
+
+- `api/index.py` as the Vercel entrypoint
+- `vercel.json` to route all requests to the FastAPI app
+
+Recommended setup:
+
+1. Push this repo to GitHub.
+2. Import the repo into Vercel.
+3. Set the framework preset to `Other`.
+4. Keep the root directory as the repo root.
+5. Add the same environment variables you use locally.
+
+Important environment variables for Vercel:
+
+- `DB_BACKEND=libsql`
+- `TURSO_DATABASE_URL=libsql://...`
+- `TURSO_AUTH_TOKEN=...`
+- `JWT_SECRET_KEY=...`
+- `SECRET_KEY=...`
+- `S2S_SECRET_KEY=...`
+- `GOOGLE_CLIENT_ID=...`
+- `GOOGLE_CLIENT_SECRET=...`
+- `GOOGLE_REDIRECT_URI=https://<your-vercel-domain>/api/v1/auth/google/callback`
+- `FRONTEND_URL=https://<your-frontend-domain>`
+
+Notes:
+
+- Vercel is serverless, so database initialization is also done lazily on first use.
+- Keep docs disabled in production by leaving `DEBUG=false`.
+- If you use cookies for refresh tokens across domains, make sure your frontend and API domains/cookie settings match your production flow.
 
 ---
 

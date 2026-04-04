@@ -5,6 +5,7 @@ Exposes a thin async-compatible interface: execute(), fetch_one(), fetch_all().
 
 from __future__ import annotations
 
+import asyncio
 from contextvars import ContextVar
 import logging
 import os
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 # Module-level connection — created once at startup
 _conn: libsql.Connection | None = None
 _d1_binding: ContextVar[Any | None] = ContextVar("d1_binding", default=None)
+_init_lock = asyncio.Lock()
 
 
 def _using_d1_binding_backend() -> bool:
@@ -50,21 +52,21 @@ def _get_d1_binding() -> Any:
 
 def _configure_db_ssl() -> None:
     """Set the CA bundle used by Python before creating the client."""
-    cert_file = settings.d1_ssl_cert_file or os.environ.get("SSL_CERT_FILE") or certifi.where()
+    cert_file = settings.turso_ssl_cert_file or os.environ.get("SSL_CERT_FILE") or certifi.where()
     os.environ["SSL_CERT_FILE"] = cert_file
     logger.info("Using SSL certificate bundle for D1 client: %s", cert_file)
 
 
 def _validate_db_tls_config() -> None:
-    if settings.d1_database_tls:
+    if settings.turso_database_tls:
         return
 
-    parsed_url = urlparse(settings.d1_database_url)
+    parsed_url = urlparse(settings.turso_database_url)
     if parsed_url.scheme == "libsql" and parsed_url.port is None:
         raise RuntimeError(
-            "D1_DATABASE_TLS=false requires an explicit port in D1_DATABASE_URL for libsql:// URLs. "
+            "TURSO_DATABASE_TLS=false requires an explicit port in TURSO_DATABASE_URL for libsql:// URLs. "
             "Hosted Turso endpoints normally require TLS, so prefer fixing the certificate chain or "
-            "using D1_SSL_CERT_FILE instead."
+            "using TURSO_SSL_CERT_FILE instead."
         )
 
 
@@ -74,21 +76,29 @@ async def init_db() -> None:
         logger.info("Database backend set to d1_binding; skipping libsql connection initialisation")
         return
 
-    if libsql is None:
-        raise RuntimeError("The libsql package is required when DB_BACKEND=libsql")
+    if _conn is not None:
+        return
 
-    _validate_db_tls_config()
-    _configure_db_ssl()
+    async with _init_lock:
+        if _conn is not None:
+            return
 
-    if not settings.d1_database_tls:
-        logger.warning("D1 TLS verification is disabled. Use this only for local development.")
+        if libsql is None:
+            raise RuntimeError("The libsql package is required when DB_BACKEND=libsql")
 
-    # The new libsql package acts like sqlite3. We connect directly to the URL.
-    _conn = libsql.connect(
-        database=settings.d1_database_url,
-        auth_token=settings.d1_auth_token
-    )
-    logger.info("D1 database connection initialised")
+        _validate_db_tls_config()
+        _configure_db_ssl()
+
+        if not settings.turso_database_tls:
+            logger.warning("D1 TLS verification is disabled. Use this only for local development.")
+
+        # Lazily initialise the shared libsql client so serverless runtimes work
+        # even when ASGI startup hooks are skipped on cold start.
+        _conn = libsql.connect(
+            database=settings.turso_database_url,
+            auth_token=settings.turso_auth_token
+        )
+        logger.info("D1 database connection initialised")
 
 
 async def close_db() -> None:
@@ -152,6 +162,7 @@ async def execute(sql: str, args: list[Any] | None = None) -> None:
         await _d1_execute(sql, args or [])
         return
 
+    await init_db()
     conn = get_client()
     conn.execute(sql, args or [])
     conn.commit()
@@ -162,6 +173,7 @@ async def fetch_one(sql: str, args: list[Any] | None = None) -> dict[str, Any] |
     if _using_d1_binding_backend():
         return await _d1_fetch_one(sql, args or [])
 
+    await init_db()
     conn = get_client()
     cursor = conn.execute(sql, args or [])
     row = cursor.fetchone()
@@ -178,6 +190,7 @@ async def fetch_all(sql: str, args: list[Any] | None = None) -> list[dict[str, A
     if _using_d1_binding_backend():
         return await _d1_fetch_all(sql, args or [])
 
+    await init_db()
     conn = get_client()
     cursor = conn.execute(sql, args or [])
     rows = cursor.fetchall()
@@ -195,6 +208,7 @@ async def execute_batch(statements: list[tuple[str, list[Any]]]) -> None:
         await _d1_execute_batch(statements)
         return
 
+    await init_db()
     conn = get_client()
     try:
         for sql, args in statements:
