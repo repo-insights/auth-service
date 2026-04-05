@@ -9,8 +9,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.dependencies import assert_same_tenant, get_current_active_user, require_admin
 from app.db.database import execute, fetch_all, fetch_one
-from app.schemas.schemas import TeamCreate, TeamMemberAdd, TeamResponse, TenantResponse
-from app.services import tenant_service
+from app.schemas.schemas import (
+    PendingWorkspaceUserResponse,
+    TeamCreate,
+    TeamMemberAdd,
+    TeamResponse,
+    TenantResponse,
+)
+from app.services import tenant_service, user_service
 
 router = APIRouter(tags=["Tenants & Teams"])
 
@@ -61,6 +67,28 @@ async def list_teams(current_user: dict = Depends(get_current_active_user)) -> l
         "SELECT * FROM teams WHERE tenant_id = ? AND is_active = 1",
         [current_user["tenant_id"]],
     )
+
+
+@teams_router.get("/pending-users", response_model=list[PendingWorkspaceUserResponse])
+async def list_pending_workspace_users(
+    current_user: dict = Depends(require_admin),
+) -> list[dict]:
+    return await user_service.get_pending_workspace_users(current_user["tenant_id"])
+
+
+@teams_router.post("/members/{user_id}/approve", status_code=status.HTTP_200_OK)
+async def approve_workspace_user(
+    user_id: str,
+    current_user: dict = Depends(require_admin),
+) -> dict[str, str]:
+    user = await user_service.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    assert_same_tenant(current_user, user["tenant_id"])
+    if user["workspace_access_status"] == "approved":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="User is already approved")
+    await user_service.approve_workspace_user(user_id, current_user["id"])
+    return {"message": "User approved successfully"}
 
 
 @teams_router.get("/{team_id}", response_model=TeamResponse)

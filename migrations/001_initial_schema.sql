@@ -13,12 +13,14 @@ CREATE TABLE IF NOT EXISTS tenants (
     id          TEXT PRIMARY KEY,                     -- UUID v4
     name        TEXT NOT NULL,
     slug        TEXT NOT NULL UNIQUE,                 -- URL-safe identifier
+    email_suffix TEXT,                                -- allowed email domain for shared workspace joins
     is_active   INTEGER NOT NULL DEFAULT 1,           -- 0 = suspended
     created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_tenants_slug ON tenants(slug);
+CREATE INDEX IF NOT EXISTS idx_tenants_email_suffix ON tenants(email_suffix);
 
 -- ─────────────────────────────────────────
 -- PLANS
@@ -55,6 +57,9 @@ CREATE TABLE IF NOT EXISTS users (
     google_id         TEXT,                           -- Google sub claim
     is_email_verified INTEGER NOT NULL DEFAULT 0,
     is_active         INTEGER NOT NULL DEFAULT 1,
+    workspace_access_status TEXT NOT NULL DEFAULT 'pending', -- pending | approved
+    approved_by       TEXT REFERENCES users(id),
+    approved_at       TEXT,
     token_version     INTEGER NOT NULL DEFAULT 1,     -- increment to force logout
     razorpay_customer_id TEXT,
     created_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
@@ -62,11 +67,11 @@ CREATE TABLE IF NOT EXISTS users (
     deleted_at        TEXT                            -- soft delete
 );
 
--- One email per tenant (allow same email across different tenants)
-CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_tenant ON users(email, tenant_id) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_global ON users(email) WHERE deleted_at IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id    ON users(google_id) WHERE google_id IS NOT NULL;
 CREATE INDEX        IF NOT EXISTS idx_users_tenant_id    ON users(tenant_id);
 CREATE INDEX        IF NOT EXISTS idx_users_email        ON users(email);
+CREATE INDEX        IF NOT EXISTS idx_users_workspace_access_status ON users(workspace_access_status);
 
 -- ─────────────────────────────────────────
 -- SUBSCRIPTIONS

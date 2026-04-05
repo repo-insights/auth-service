@@ -37,6 +37,7 @@ def test_valid_signup():
         tenant_name="Acme Corp",
     )
     assert req.email == "alice@acme.com"
+    assert req.join_existing_workspace is False
 
 
 def test_plan_permissions_map_is_ordered():

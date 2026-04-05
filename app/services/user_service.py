@@ -12,6 +12,10 @@ from app.schemas.schemas import UserCreate, UserUpdate
 _NOW = lambda: datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _normalize_email(email: str) -> str:
+    return email.strip().lower()
+
+
 async def get_user_by_id(user_id: str) -> dict[str, Any] | None:
     return await fetch_one("SELECT * FROM users WHERE id = ? AND deleted_at IS NULL", [user_id])
 
@@ -19,7 +23,14 @@ async def get_user_by_id(user_id: str) -> dict[str, Any] | None:
 async def get_user_by_email(email: str, tenant_id: str) -> dict[str, Any] | None:
     return await fetch_one(
         "SELECT * FROM users WHERE email = ? AND tenant_id = ? AND deleted_at IS NULL",
-        [email, tenant_id],
+        [_normalize_email(email), tenant_id],
+    )
+
+
+async def get_user_by_email_global(email: str) -> dict[str, Any] | None:
+    return await fetch_one(
+        "SELECT * FROM users WHERE email = ? AND deleted_at IS NULL",
+        [_normalize_email(email)],
     )
 
 
@@ -37,19 +48,23 @@ async def create_user(data: UserCreate) -> dict[str, Any]:
         """
         INSERT INTO users
             (id, tenant_id, email, name, password_hash, auth_provider, google_id,
-             is_email_verified, role, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             is_email_verified, role, workspace_access_status, approved_by, approved_at,
+             created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             user_id,
             data.tenant_id,
-            data.email,
+            _normalize_email(data.email),
             data.name,
             data.password_hash,
             data.auth_provider,
             data.google_id,
             1 if data.is_email_verified else 0,
             data.role,
+            data.workspace_access_status,
+            data.approved_by,
+            data.approved_at,
             now,
             now,
         ],
@@ -86,6 +101,21 @@ async def mark_email_verified(user_id: str) -> None:
     )
 
 
+async def approve_workspace_user(user_id: str, approved_by: str) -> None:
+    now = _NOW()
+    await execute(
+        """
+        UPDATE users
+        SET workspace_access_status = 'approved',
+            approved_by = ?,
+            approved_at = ?,
+            updated_at = ?
+        WHERE id = ?
+        """,
+        [approved_by, now, now, user_id],
+    )
+
+
 async def increment_token_version(user_id: str) -> int:
     """Bump token_version — invalidates all existing JWTs for this user."""
     await execute(
@@ -107,4 +137,18 @@ async def get_users_by_tenant(tenant_id: str, limit: int = 50, offset: int = 0) 
     return await fetch_all(
         "SELECT * FROM users WHERE tenant_id = ? AND deleted_at IS NULL LIMIT ? OFFSET ?",
         [tenant_id, limit, offset],
+    )
+
+
+async def get_pending_workspace_users(tenant_id: str) -> list[dict]:
+    return await fetch_all(
+        """
+        SELECT *
+        FROM users
+        WHERE tenant_id = ?
+          AND deleted_at IS NULL
+          AND workspace_access_status = 'pending'
+        ORDER BY created_at ASC
+        """,
+        [tenant_id],
     )

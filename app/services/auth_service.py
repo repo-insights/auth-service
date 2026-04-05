@@ -21,7 +21,6 @@ from app.core.security import (
 )
 from app.schemas.schemas import (
     PLAN_PERMISSIONS,
-    GoogleUserInfo,
     LoginRequest,
     SignupRequest,
     SignupResponse,
@@ -95,17 +94,54 @@ async def _build_token_pair(user: dict, request: Request) -> tuple[TokenPair, st
 # ─────────────────────────────────────────
 
 async def signup(data: SignupRequest, request: Request) -> SignupResponse:
-    # Create tenant first
-    tenant = await tenant_service.create_tenant(data.tenant_name)
-    await tenant_service.create_default_subscription(tenant["id"])
-
-    # Check for duplicate email within this tenant
-    existing = await user_service.get_user_by_email(data.email, tenant["id"])
+    existing = await user_service.get_user_by_email_global(data.email)
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An account with this email already exists",
         )
+
+    workspace = await tenant_service.get_tenant_by_name(data.tenant_name)
+    requires_workspace_approval = False
+    user_role = "user"
+    workspace_access_status = "pending"
+    approved_by = None
+    approved_at = None
+
+    if workspace:
+        if not tenant_service.can_join_workspace(workspace, data.email):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": (
+                        "Workspace name already exists and your email domain does not match "
+                        "that workspace. Please use an individual workspace or choose a unique workspace name."
+                    ),
+                    "workspace_exists": True,
+                    "can_join_workspace": False,
+                    "tenant_slug": workspace["slug"],
+                },
+            )
+        if not data.join_existing_workspace:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": "Workspace name already exists. Do you want to be a part of that workspace?",
+                    "workspace_exists": True,
+                    "can_join_workspace": True,
+                    "tenant_slug": workspace["slug"],
+                },
+            )
+        tenant = workspace
+        requires_workspace_approval = True
+    else:
+        tenant = await tenant_service.create_tenant(
+            data.tenant_name,
+            email_suffix=tenant_service.get_workspace_email_suffix(data.email),
+        )
+        await tenant_service.create_default_subscription(tenant["id"])
+        user_role = "admin"
+        workspace_access_status = "approved"
 
     from app.core.security import hash_password
     user = await user_service.create_user(
@@ -116,6 +152,10 @@ async def signup(data: SignupRequest, request: Request) -> SignupResponse:
             password_hash=hash_password(data.password),
             auth_provider="email",
             is_email_verified=False,
+            role=user_role,
+            workspace_access_status=workspace_access_status,
+            approved_by=approved_by,
+            approved_at=approved_at,
         )
     )
 
@@ -129,7 +169,12 @@ async def signup(data: SignupRequest, request: Request) -> SignupResponse:
         email=user["email"],
         tenant_id=tenant["id"],
         tenant_slug=tenant["slug"],
-        message="Account created — please verify your email before logging in",
+        requires_workspace_approval=requires_workspace_approval,
+        message=(
+            "Account created. Please verify your email, then wait for the workspace admin to approve your access."
+            if requires_workspace_approval
+            else "Account created — please verify your email before logging in"
+        ),
     )
 
 
@@ -145,6 +190,9 @@ async def verify_email(raw_token: str) -> dict[str, str]:
             detail="Invalid or expired verification token",
         )
     await user_service.mark_email_verified(row["user_id"])
+    user = await user_service.get_user_by_id(row["user_id"])
+    if user and user["workspace_access_status"] != "approved":
+        return {"message": "Email verified successfully — please wait for the workspace admin to approve your access"}
     return {"message": "Email verified successfully — you can now log in"}
 
 
@@ -153,7 +201,7 @@ async def resend_verification(email: str) -> dict[str, str]:
     from app.db.database import fetch_one
     user = await fetch_one(
         "SELECT * FROM users WHERE email = ? AND deleted_at IS NULL AND is_email_verified = 0 LIMIT 1",
-        [email],
+        [email.strip().lower()],
     )
     # Always return same message to avoid email enumeration
     if user:
@@ -197,6 +245,12 @@ async def login(data: LoginRequest, tenant_slug: str, request: Request) -> tuple
             detail="Please verify your email before logging in",
         )
 
+    if user["workspace_access_status"] != "approved":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your workspace access is pending admin approval",
+        )
+
     if not user["is_active"]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account suspended")
 
@@ -224,9 +278,19 @@ async def handle_google_callback(code: str, request: Request) -> tuple[TokenPair
     user = await user_service.get_user_by_google_id(g_user.sub)
 
     if not user:
+        existing_email_user = await user_service.get_user_by_email_global(g_user.email)
+        if existing_email_user:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="An account with this email already exists",
+            )
+
         # New user — auto-create tenant named after their email domain
         domain = g_user.email.split("@")[-1]
-        tenant = await tenant_service.create_tenant(domain)
+        tenant = await tenant_service.create_tenant(
+            domain,
+            email_suffix=tenant_service.get_workspace_email_suffix(g_user.email),
+        )
         await tenant_service.create_default_subscription(tenant["id"])
 
         user = await user_service.create_user(
@@ -237,6 +301,8 @@ async def handle_google_callback(code: str, request: Request) -> tuple[TokenPair
                 auth_provider="google",
                 google_id=g_user.sub,
                 is_email_verified=True,  # Google verifies email
+                role="admin",
+                workspace_access_status="approved",
             )
         )
 

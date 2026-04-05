@@ -33,6 +33,7 @@ class SignupRequest(BaseModel):
     password: Annotated[str, Field(min_length=8, max_length=128)]
     name: Annotated[str, Field(min_length=1, max_length=100)]
     tenant_name: Annotated[str, Field(min_length=2, max_length=80)]
+    join_existing_workspace: bool = False
 
     @field_validator("password")
     @classmethod
@@ -54,6 +55,7 @@ class SignupResponse(BaseModel):
     email: EmailStr
     tenant_id: str
     tenant_slug: str
+    requires_workspace_approval: bool = False
     message: str
 
 
@@ -105,6 +107,9 @@ class UserCreate(BaseModel):
     google_id: str | None = None
     is_email_verified: bool = False
     role: Literal["user", "admin"] = "user"
+    workspace_access_status: Literal["pending", "approved"] = "pending"
+    approved_by: str | None = None
+    approved_at: str | None = None
 
 
 class UserUpdate(BaseModel):
@@ -120,6 +125,9 @@ class UserResponse(BaseModel):
     auth_provider: str
     is_email_verified: bool
     is_active: bool
+    workspace_access_status: str
+    approved_by: str | None
+    approved_at: str | None
     avatar_url: str | None
     tenant_id: str
     razorpay_customer_id: str | None
@@ -153,7 +161,20 @@ class TenantResponse(BaseModel):
     id: str
     name: str
     slug: str
+    email_suffix: str | None = None
     is_active: bool
+    created_at: str
+
+
+class PendingWorkspaceUserResponse(BaseModel):
+    id: str
+    email: str
+    name: str
+    role: str
+    auth_provider: str
+    is_email_verified: bool
+    workspace_access_status: str
+    tenant_id: str
     created_at: str
 
 
