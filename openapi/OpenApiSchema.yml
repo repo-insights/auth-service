@@ -818,6 +818,20 @@ components:
         display_name:
           type: string
           title: Display Name
+        plan_name:
+          type: string
+          title: Plan Name
+        description:
+          type: string
+          title: Description
+        button_text:
+          type: string
+          title: Button Text
+        features:
+          items:
+            type: string
+          type: array
+          title: Features
         permissions:
           items:
             type: string
@@ -829,14 +843,26 @@ components:
         max_members:
           type: integer
           title: Max Members
+        is_popular:
+          type: boolean
+          title: Is Popular
+          default: false
+        sort_order:
+          type: integer
+          title: Sort Order
       type: object
       required:
         - id
         - name
         - display_name
+        - plan_name
+        - description
+        - button_text
+        - features
         - permissions
         - max_repos
         - max_members
+        - sort_order
       title: PlanResponse
     ProfileUpdate:
       properties:
@@ -940,9 +966,38 @@ components:
         plan_id:
           type: string
           title: Plan Id
+        plan_code:
+          type: string
+          title: Plan Code
         plan_name:
           type: string
           title: Plan Name
+        description:
+          type: string
+          title: Description
+        button_text:
+          type: string
+          title: Button Text
+        features:
+          items:
+            type: string
+          type: array
+          title: Features
+        permissions:
+          items:
+            type: string
+          type: array
+          title: Permissions
+        max_repos:
+          type: integer
+          title: Max Repos
+        max_members:
+          type: integer
+          title: Max Members
+        is_popular:
+          type: boolean
+          title: Is Popular
+          default: false
         status:
           type: string
           title: Status
@@ -956,7 +1011,14 @@ components:
         - id
         - tenant_id
         - plan_id
+        - plan_code
         - plan_name
+        - description
+        - button_text
+        - features
+        - permissions
+        - max_repos
+        - max_members
         - status
         - current_period_end
       title: SubscriptionResponse

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.schemas import PLAN_PERMISSIONS, SignupRequest, TeamCreate, TeamMemberAdd
+from app.schemas.schemas import PlanResponse, SignupRequest, TeamCreate, TeamMemberAdd
 
 
 def test_signup_requires_uppercase():
@@ -40,15 +40,23 @@ def test_valid_signup():
     assert req.join_existing_workspace is False
 
 
-def test_plan_permissions_map_is_ordered():
-    assert "read_repo" in PLAN_PERMISSIONS["tier_1"]
-    assert "ask_ai" in PLAN_PERMISSIONS["tier_2"]
-    assert "multi_repo" in PLAN_PERMISSIONS["tier_3"]
-    # Lower tiers are subsets
-    for perm in PLAN_PERMISSIONS["tier_1"]:
-        assert perm in PLAN_PERMISSIONS["tier_2"]
-    for perm in PLAN_PERMISSIONS["tier_2"]:
-        assert perm in PLAN_PERMISSIONS["tier_3"]
+def test_plan_response_supports_db_backed_metadata() -> None:
+    plan = PlanResponse(
+        id="plan_tier2",
+        name="tier_2",
+        display_name="Professional",
+        plan_name="Professional",
+        description="For growing teams that need AI and collaboration features.",
+        button_text="Start free trial",
+        features=["5 repositories", "5 members", "AI Q&A"],
+        permissions=["read_repo", "ask_ai"],
+        max_repos=5,
+        max_members=5,
+        is_popular=True,
+        sort_order=2,
+    )
+    assert plan.plan_name == "Professional"
+    assert "AI Q&A" in plan.features
 
 
 def test_team_member_role_default():

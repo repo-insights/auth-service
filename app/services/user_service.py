@@ -16,59 +16,108 @@ def _normalize_email(email: str) -> str:
     return email.strip().lower()
 
 
+def _hydrate_user_row(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    defaults = {
+        "workspace_access_status": "approved",
+        "approved_by": None,
+        "approved_at": None,
+    }
+    return {**defaults, **row}
+
+
 async def get_user_by_id(user_id: str) -> dict[str, Any] | None:
-    return await fetch_one("SELECT * FROM users WHERE id = ? AND deleted_at IS NULL", [user_id])
+    return _hydrate_user_row(
+        await fetch_one("SELECT * FROM users WHERE id = ? AND deleted_at IS NULL", [user_id])
+    )
 
 
 async def get_user_by_email(email: str, tenant_id: str) -> dict[str, Any] | None:
-    return await fetch_one(
-        "SELECT * FROM users WHERE email = ? AND tenant_id = ? AND deleted_at IS NULL",
-        [_normalize_email(email), tenant_id],
+    return _hydrate_user_row(
+        await fetch_one(
+            "SELECT * FROM users WHERE email = ? AND tenant_id = ? AND deleted_at IS NULL",
+            [_normalize_email(email), tenant_id],
+        )
     )
 
 
 async def get_user_by_email_global(email: str) -> dict[str, Any] | None:
-    return await fetch_one(
-        "SELECT * FROM users WHERE email = ? AND deleted_at IS NULL",
-        [_normalize_email(email)],
+    return _hydrate_user_row(
+        await fetch_one(
+            "SELECT * FROM users WHERE email = ? AND deleted_at IS NULL",
+            [_normalize_email(email)],
+        )
     )
 
 
 async def get_user_by_google_id(google_id: str) -> dict[str, Any] | None:
-    return await fetch_one(
-        "SELECT * FROM users WHERE google_id = ? AND deleted_at IS NULL",
-        [google_id],
+    return _hydrate_user_row(
+        await fetch_one(
+            "SELECT * FROM users WHERE google_id = ? AND deleted_at IS NULL",
+            [google_id],
+        )
     )
 
 
 async def create_user(data: UserCreate) -> dict[str, Any]:
     user_id = str(uuid.uuid4())
     now = _NOW()
-    await execute(
-        """
-        INSERT INTO users
-            (id, tenant_id, email, name, password_hash, auth_provider, google_id,
-             is_email_verified, role, workspace_access_status, approved_by, approved_at,
-             created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        [
-            user_id,
-            data.tenant_id,
-            _normalize_email(data.email),
-            data.name,
-            data.password_hash,
-            data.auth_provider,
-            data.google_id,
-            1 if data.is_email_verified else 0,
-            data.role,
-            data.workspace_access_status,
-            data.approved_by,
-            data.approved_at,
-            now,
-            now,
-        ],
-    )
+    try:
+        await execute(
+            """
+            INSERT INTO users
+                (id, tenant_id, email, name, password_hash, auth_provider, google_id,
+                 is_email_verified, role, workspace_access_status, approved_by, approved_at,
+                 created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                user_id,
+                data.tenant_id,
+                _normalize_email(data.email),
+                data.name,
+                data.password_hash,
+                data.auth_provider,
+                data.google_id,
+                1 if data.is_email_verified else 0,
+                data.role,
+                data.workspace_access_status,
+                data.approved_by,
+                data.approved_at,
+                now,
+                now,
+            ],
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if (
+            "users has no column named workspace_access_status" not in message
+            and "users has no column named approved_by" not in message
+            and "users has no column named approved_at" not in message
+        ):
+            raise
+        await execute(
+            """
+            INSERT INTO users
+                (id, tenant_id, email, name, password_hash, auth_provider, google_id,
+                 is_email_verified, role, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                user_id,
+                data.tenant_id,
+                _normalize_email(data.email),
+                data.name,
+                data.password_hash,
+                data.auth_provider,
+                data.google_id,
+                1 if data.is_email_verified else 0,
+                data.role,
+                now,
+                now,
+            ],
+        )
     return await get_user_by_id(user_id)  # type: ignore[return-value]
 
 
@@ -103,17 +152,25 @@ async def mark_email_verified(user_id: str) -> None:
 
 async def approve_workspace_user(user_id: str, approved_by: str) -> None:
     now = _NOW()
-    await execute(
-        """
-        UPDATE users
-        SET workspace_access_status = 'approved',
-            approved_by = ?,
-            approved_at = ?,
-            updated_at = ?
-        WHERE id = ?
-        """,
-        [approved_by, now, now, user_id],
-    )
+    try:
+        await execute(
+            """
+            UPDATE users
+            SET workspace_access_status = 'approved',
+                approved_by = ?,
+                approved_at = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            [approved_by, now, now, user_id],
+        )
+    except ValueError as exc:
+        if "no such column" not in str(exc) and "has no column named" not in str(exc):
+            raise
+        await execute(
+            "UPDATE users SET updated_at = ? WHERE id = ?",
+            [now, user_id],
+        )
 
 
 async def increment_token_version(user_id: str) -> int:
@@ -134,21 +191,28 @@ async def set_razorpay_customer(user_id: str, customer_id: str) -> None:
 
 
 async def get_users_by_tenant(tenant_id: str, limit: int = 50, offset: int = 0) -> list[dict]:
-    return await fetch_all(
+    rows = await fetch_all(
         "SELECT * FROM users WHERE tenant_id = ? AND deleted_at IS NULL LIMIT ? OFFSET ?",
         [tenant_id, limit, offset],
     )
+    return [_hydrate_user_row(row) for row in rows]
 
 
 async def get_pending_workspace_users(tenant_id: str) -> list[dict]:
-    return await fetch_all(
-        """
-        SELECT *
-        FROM users
-        WHERE tenant_id = ?
-          AND deleted_at IS NULL
-          AND workspace_access_status = 'pending'
-        ORDER BY created_at ASC
-        """,
-        [tenant_id],
-    )
+    try:
+        rows = await fetch_all(
+            """
+            SELECT *
+            FROM users
+            WHERE tenant_id = ?
+              AND deleted_at IS NULL
+              AND workspace_access_status = 'pending'
+            ORDER BY created_at ASC
+            """,
+            [tenant_id],
+        )
+    except ValueError as exc:
+        if "no such column" not in str(exc) and "has no column named" not in str(exc):
+            raise
+        return []
+    return [_hydrate_user_row(row) for row in rows]

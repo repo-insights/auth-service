@@ -29,18 +29,26 @@ CREATE TABLE IF NOT EXISTS plans (
     id           TEXT PRIMARY KEY,                    -- UUID v4
     name         TEXT NOT NULL UNIQUE,                -- tier_1 | tier_2 | tier_3
     display_name TEXT NOT NULL,
+    description  TEXT NOT NULL DEFAULT '',
+    button_text  TEXT NOT NULL DEFAULT 'Get started',
+    features     TEXT NOT NULL DEFAULT '[]',          -- JSON array for pricing/features UI
     permissions  TEXT NOT NULL,                       -- JSON array e.g. '["read_repo","ask_ai"]'
     max_repos    INTEGER NOT NULL DEFAULT 1,
     max_members  INTEGER NOT NULL DEFAULT 1,
+    is_popular   INTEGER NOT NULL DEFAULT 0,
+    sort_order   INTEGER NOT NULL DEFAULT 0,
     is_active    INTEGER NOT NULL DEFAULT 1,
     created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 
-INSERT OR IGNORE INTO plans (id, name, display_name, permissions, max_repos, max_members)
+INSERT OR IGNORE INTO plans (
+    id, name, display_name, description, button_text, features, permissions,
+    max_repos, max_members, is_popular, sort_order
+)
 VALUES
-    ('plan_tier1', 'tier_1', 'Starter',      '["read_repo"]',                          1,  1),
-    ('plan_tier2', 'tier_2', 'Professional', '["read_repo","ask_ai"]',                 5,  5),
-    ('plan_tier3', 'tier_3', 'Enterprise',   '["read_repo","ask_ai","multi_repo"]',   999, 999);
+    ('plan_tier1', 'tier_1', 'Starter',      'For individuals getting started with one repository workspace.', 'Get started',    '["1 repository","1 member","Basic repository access"]',                    '["read_repo"]',                        1,   1,   0, 1),
+    ('plan_tier2', 'tier_2', 'Professional', 'For growing teams that need AI and collaboration features.',     'Start free trial','["5 repositories","5 members","AI Q&A","Team collaboration"]',          '["read_repo","ask_ai"]',               5,   5,   1, 2),
+    ('plan_tier3', 'tier_3', 'Enterprise',   'For larger organizations managing many repositories and members.', 'Contact sales',  '["Unlimited repositories","Unlimited members","AI Q&A","Multi-repo insights"]', '["read_repo","ask_ai","multi_repo"]', 999, 999, 0, 3);
 
 -- ─────────────────────────────────────────
 -- USERS

@@ -208,27 +208,35 @@ class TeamMemberAdd(BaseModel):
 
 PlanName = Literal["tier_1", "tier_2", "tier_3"]
 
-PLAN_PERMISSIONS: dict[str, list[str]] = {
-    "tier_1": ["read_repo"],
-    "tier_2": ["read_repo", "ask_ai"],
-    "tier_3": ["read_repo", "ask_ai", "multi_repo"],
-}
-
 
 class PlanResponse(BaseModel):
     id: str
     name: str
     display_name: str
+    plan_name: str
+    description: str
+    button_text: str
+    features: list[str]
     permissions: list[str]
     max_repos: int
     max_members: int
+    is_popular: bool = False
+    sort_order: int
 
 
 class SubscriptionResponse(BaseModel):
     id: str
     tenant_id: str
     plan_id: str
+    plan_code: str
     plan_name: str
+    description: str
+    button_text: str
+    features: list[str]
+    permissions: list[str]
+    max_repos: int
+    max_members: int
+    is_popular: bool = False
     status: str
     current_period_end: str | None
 

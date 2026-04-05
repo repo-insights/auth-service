@@ -5,7 +5,6 @@ Keeps all business logic out of route handlers.
 
 from __future__ import annotations
 
-import json
 import logging
 import secrets
 from typing import Any
@@ -20,7 +19,6 @@ from app.core.security import (
     verify_password,
 )
 from app.schemas.schemas import (
-    PLAN_PERMISSIONS,
     LoginRequest,
     SignupRequest,
     SignupResponse,
@@ -49,8 +47,18 @@ async def _build_token_pair(user: dict, request: Request) -> tuple[TokenPair, st
     Also fetches the active subscription so permissions are always fresh.
     """
     sub = await tenant_service.get_active_subscription(user["tenant_id"])
-    plan_name = sub["plan_name"] if sub else "tier_1"
-    permissions = json.loads(sub["plan_permissions"]) if sub else PLAN_PERMISSIONS["tier_1"]
+    if sub:
+        plan_code = sub["plan_code"]
+        permissions = sub["permissions"]
+    else:
+        default_plan = await tenant_service.get_default_plan()
+        if not default_plan:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="No active plans configured",
+            )
+        plan_code = default_plan["name"]
+        permissions = default_plan["permissions"]
 
     # Primary team (first team membership, if any)
     from app.db.database import fetch_one
@@ -67,7 +75,7 @@ async def _build_token_pair(user: dict, request: Request) -> tuple[TokenPair, st
         tenant_id=user["tenant_id"],
         team_id=team_id,
         role=user["role"],
-        plan=plan_name,
+        plan=plan_code,
         customer_id=user.get("razorpay_customer_id"),
         permissions=permissions,
         token_version=user["token_version"],
