@@ -8,12 +8,38 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from app.db.database import execute, fetch_one
+from app.db.database import execute, fetch_all, fetch_one
 from fastapi import HTTPException, status
 
 _NOW = lambda: datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 DEFAULT_PLAN_ID = "plan_tier1"
 DEFAULT_PLAN_CODE = "tier_1"
+_PLAN_UI_DEFAULTS: dict[str, dict[str, Any]] = {
+    "tier_1": {
+        "plan_name": "Starter",
+        "description": "For individuals getting started with one repository workspace.",
+        "button_text": "Get started",
+        "features": ["1 repository", "1 member", "Basic repository access"],
+        "is_popular": False,
+        "sort_order": 1,
+    },
+    "tier_2": {
+        "plan_name": "Professional",
+        "description": "For growing teams that need AI and collaboration features.",
+        "button_text": "Start free trial",
+        "features": ["5 repositories", "5 members", "AI Q&A", "Team collaboration"],
+        "is_popular": True,
+        "sort_order": 2,
+    },
+    "tier_3": {
+        "plan_name": "Enterprise",
+        "description": "For larger organizations managing many repositories and members.",
+        "button_text": "Contact sales",
+        "features": ["Unlimited repositories", "Unlimited members", "AI Q&A", "Multi-repo insights"],
+        "is_popular": False,
+        "sort_order": 3,
+    },
+}
 
 _PUBLIC_EMAIL_DOMAINS = {
     "gmail.com",
@@ -82,9 +108,37 @@ def _hydrate_plan_row(row: dict[str, Any] | None) -> dict[str, Any] | None:
         hydrated["plan_permissions"] = _decode_json_list(hydrated["plan_permissions"])
     if "plan_features" in hydrated:
         hydrated["plan_features"] = _decode_json_list(hydrated["plan_features"])
+    plan_code = hydrated.get("name") or hydrated.get("plan_code")
+    defaults = _PLAN_UI_DEFAULTS.get(str(plan_code), {})
     if "display_name" in hydrated and "plan_name" not in hydrated:
         hydrated["plan_name"] = hydrated["display_name"]
+    if not hydrated.get("plan_name"):
+        hydrated["plan_name"] = defaults.get("plan_name", "")
+    if not hydrated.get("description"):
+        hydrated["description"] = defaults.get("description", "")
+    if not hydrated.get("button_text"):
+        hydrated["button_text"] = defaults.get("button_text", "Get started")
+    if not hydrated.get("features"):
+        hydrated["features"] = list(defaults.get("features", []))
+    if "is_popular" not in hydrated or hydrated["is_popular"] is None:
+        hydrated["is_popular"] = defaults.get("is_popular", False)
+    if "sort_order" not in hydrated or hydrated["sort_order"] is None:
+        hydrated["sort_order"] = defaults.get("sort_order", 0)
     return hydrated
+
+
+def _is_missing_plan_metadata_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(
+        needle in message
+        for needle in (
+            "no such column: description",
+            "no such column: button_text",
+            "no such column: features",
+            "no such column: is_popular",
+            "no such column: sort_order",
+        )
+    )
 
 
 async def create_tenant(name: str, email_suffix: str | None = None) -> dict[str, Any]:
@@ -130,14 +184,26 @@ async def get_tenant_by_name(name: str) -> dict[str, Any] | None:
 
 
 async def list_active_plans() -> list[dict[str, Any]]:
-    rows = await fetch_all(
-        """
-        SELECT *
-        FROM plans
-        WHERE is_active = 1
-        ORDER BY sort_order ASC, max_repos ASC, display_name ASC
-        """
-    )
+    try:
+        rows = await fetch_all(
+            """
+            SELECT *
+            FROM plans
+            WHERE is_active = 1
+            ORDER BY sort_order ASC, max_repos ASC, display_name ASC
+            """
+        )
+    except Exception as exc:
+        if not _is_missing_plan_metadata_error(exc):
+            raise
+        rows = await fetch_all(
+            """
+            SELECT *
+            FROM plans
+            WHERE is_active = 1
+            ORDER BY max_repos ASC, display_name ASC
+            """
+        )
     return [_hydrate_plan_row(row) for row in rows if row is not None]
 
 
@@ -158,8 +224,8 @@ async def get_default_plan() -> dict[str, Any] | None:
     if plan:
         return plan
 
-    return _hydrate_plan_row(
-        await fetch_one(
+    try:
+        row = await fetch_one(
             """
             SELECT *
             FROM plans
@@ -168,32 +234,66 @@ async def get_default_plan() -> dict[str, Any] | None:
             LIMIT 1
             """
         )
-    )
+    except Exception as exc:
+        if not _is_missing_plan_metadata_error(exc):
+            raise
+        row = await fetch_one(
+            """
+            SELECT *
+            FROM plans
+            WHERE is_active = 1
+            ORDER BY max_repos ASC, display_name ASC
+            LIMIT 1
+            """
+        )
+    return _hydrate_plan_row(row)
 
 
 async def get_active_subscription(tenant_id: str) -> dict[str, Any] | None:
-    return _hydrate_plan_row(await fetch_one(
-        """
-        SELECT
-            s.*,
-            p.name AS plan_code,
-            p.display_name AS plan_name,
-            p.description AS description,
-            p.button_text AS button_text,
-            p.features AS features,
-            p.permissions AS permissions,
-            p.max_repos AS max_repos,
-            p.max_members AS max_members,
-            p.is_popular AS is_popular,
-            p.sort_order AS sort_order
-        FROM subscriptions s
-        JOIN plans p ON p.id = s.plan_id
-        WHERE s.tenant_id = ? AND s.status = 'active'
-        ORDER BY s.created_at DESC
-        LIMIT 1
-        """,
-        [tenant_id],
-    ))
+    try:
+        row = await fetch_one(
+            """
+            SELECT
+                s.*,
+                p.name AS plan_code,
+                p.display_name AS plan_name,
+                p.description AS description,
+                p.button_text AS button_text,
+                p.features AS features,
+                p.permissions AS permissions,
+                p.max_repos AS max_repos,
+                p.max_members AS max_members,
+                p.is_popular AS is_popular,
+                p.sort_order AS sort_order
+            FROM subscriptions s
+            JOIN plans p ON p.id = s.plan_id
+            WHERE s.tenant_id = ? AND s.status = 'active'
+            ORDER BY s.created_at DESC
+            LIMIT 1
+            """,
+            [tenant_id],
+        )
+    except Exception as exc:
+        if not _is_missing_plan_metadata_error(exc):
+            raise
+        row = await fetch_one(
+            """
+            SELECT
+                s.*,
+                p.name AS plan_code,
+                p.display_name AS plan_name,
+                p.permissions AS permissions,
+                p.max_repos AS max_repos,
+                p.max_members AS max_members
+            FROM subscriptions s
+            JOIN plans p ON p.id = s.plan_id
+            WHERE s.tenant_id = ? AND s.status = 'active'
+            ORDER BY s.created_at DESC
+            LIMIT 1
+            """,
+            [tenant_id],
+        )
+    return _hydrate_plan_row(row)
 
 
 async def create_default_subscription(tenant_id: str) -> None:
