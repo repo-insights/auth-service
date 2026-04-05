@@ -27,6 +27,7 @@ async def get_my_subscription(current_user: dict = Depends(get_current_active_us
         "plan_id": sub["plan_id"],
         "plan_code": sub["plan_code"],
         "plan_name": sub["plan_name"],
+        "price": sub["price"],
         "description": sub["description"],
         "button_text": sub["button_text"],
         "features": sub["features"],

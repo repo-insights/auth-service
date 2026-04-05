@@ -1,6 +1,7 @@
 -- Add richer plan metadata so API responses can be driven entirely from DB.
 
 ALTER TABLE plans ADD COLUMN description TEXT NOT NULL DEFAULT '';
+ALTER TABLE plans ADD COLUMN price TEXT NOT NULL DEFAULT '';
 ALTER TABLE plans ADD COLUMN button_text TEXT NOT NULL DEFAULT 'Get started';
 ALTER TABLE plans ADD COLUMN features TEXT NOT NULL DEFAULT '[]';
 ALTER TABLE plans ADD COLUMN is_popular INTEGER NOT NULL DEFAULT 0;
@@ -13,6 +14,12 @@ SET
         WHEN 'tier_2' THEN 'For growing teams that need AI and collaboration features.'
         WHEN 'tier_3' THEN 'For larger organizations managing many repositories and members.'
         ELSE description
+    END,
+    price = CASE name
+        WHEN 'tier_1' THEN 'Free'
+        WHEN 'tier_2' THEN '999/month'
+        WHEN 'tier_3' THEN 'Custom'
+        ELSE price
     END,
     button_text = CASE name
         WHEN 'tier_1' THEN 'Get started'

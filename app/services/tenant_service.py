@@ -17,6 +17,7 @@ DEFAULT_PLAN_CODE = "tier_1"
 _PLAN_UI_DEFAULTS: dict[str, dict[str, Any]] = {
     "tier_1": {
         "plan_name": "Starter",
+        "price": "Free",
         "description": "For individuals getting started with one repository workspace.",
         "button_text": "Get started",
         "features": ["1 repository", "1 member", "Basic repository access"],
@@ -25,6 +26,7 @@ _PLAN_UI_DEFAULTS: dict[str, dict[str, Any]] = {
     },
     "tier_2": {
         "plan_name": "Professional",
+        "price": "999/month",
         "description": "For growing teams that need AI and collaboration features.",
         "button_text": "Start free trial",
         "features": ["5 repositories", "5 members", "AI Q&A", "Team collaboration"],
@@ -33,6 +35,7 @@ _PLAN_UI_DEFAULTS: dict[str, dict[str, Any]] = {
     },
     "tier_3": {
         "plan_name": "Enterprise",
+        "price": "Custom",
         "description": "For larger organizations managing many repositories and members.",
         "button_text": "Contact sales",
         "features": ["Unlimited repositories", "Unlimited members", "AI Q&A", "Multi-repo insights"],
@@ -114,6 +117,8 @@ def _hydrate_plan_row(row: dict[str, Any] | None) -> dict[str, Any] | None:
         hydrated["plan_name"] = hydrated["display_name"]
     if not hydrated.get("plan_name"):
         hydrated["plan_name"] = defaults.get("plan_name", "")
+    if not hydrated.get("price"):
+        hydrated["price"] = defaults.get("price", "")
     if not hydrated.get("description"):
         hydrated["description"] = defaults.get("description", "")
     if not hydrated.get("button_text"):
@@ -133,6 +138,7 @@ def _is_missing_plan_metadata_error(exc: Exception) -> bool:
         needle in message
         for needle in (
             "no such column: description",
+            "no such column: price",
             "no such column: button_text",
             "no such column: features",
             "no such column: is_popular",
@@ -257,6 +263,7 @@ async def get_active_subscription(tenant_id: str) -> dict[str, Any] | None:
                 s.*,
                 p.name AS plan_code,
                 p.display_name AS plan_name,
+                p.price AS price,
                 p.description AS description,
                 p.button_text AS button_text,
                 p.features AS features,

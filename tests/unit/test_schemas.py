@@ -46,6 +46,7 @@ def test_plan_response_supports_db_backed_metadata() -> None:
         name="tier_2",
         display_name="Professional",
         plan_name="Professional",
+        price="999/month",
         description="For growing teams that need AI and collaboration features.",
         button_text="Start free trial",
         features=["5 repositories", "5 members", "AI Q&A"],
@@ -56,6 +57,7 @@ def test_plan_response_supports_db_backed_metadata() -> None:
         sort_order=2,
     )
     assert plan.plan_name == "Professional"
+    assert plan.price == "999/month"
     assert "AI Q&A" in plan.features
 
 

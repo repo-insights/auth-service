@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS plans (
     id           TEXT PRIMARY KEY,                    -- UUID v4
     name         TEXT NOT NULL UNIQUE,                -- tier_1 | tier_2 | tier_3
     display_name TEXT NOT NULL,
+    price        TEXT NOT NULL DEFAULT '',
     description  TEXT NOT NULL DEFAULT '',
     button_text  TEXT NOT NULL DEFAULT 'Get started',
     features     TEXT NOT NULL DEFAULT '[]',          -- JSON array for pricing/features UI
@@ -42,13 +43,13 @@ CREATE TABLE IF NOT EXISTS plans (
 );
 
 INSERT OR IGNORE INTO plans (
-    id, name, display_name, description, button_text, features, permissions,
+    id, name, display_name, price, description, button_text, features, permissions,
     max_repos, max_members, is_popular, sort_order
 )
 VALUES
-    ('plan_tier1', 'tier_1', 'Starter',      'For individuals getting started with one repository workspace.', 'Get started',    '["1 repository","1 member","Basic repository access"]',                    '["read_repo"]',                        1,   1,   0, 1),
-    ('plan_tier2', 'tier_2', 'Professional', 'For growing teams that need AI and collaboration features.',     'Start free trial','["5 repositories","5 members","AI Q&A","Team collaboration"]',          '["read_repo","ask_ai"]',               5,   5,   1, 2),
-    ('plan_tier3', 'tier_3', 'Enterprise',   'For larger organizations managing many repositories and members.', 'Contact sales',  '["Unlimited repositories","Unlimited members","AI Q&A","Multi-repo insights"]', '["read_repo","ask_ai","multi_repo"]', 999, 999, 0, 3);
+    ('plan_tier1', 'tier_1', 'Starter',      'Free',      'For individuals getting started with one repository workspace.', 'Get started',    '["1 repository","1 member","Basic repository access"]',                    '["read_repo"]',                        1,   1,   0, 1),
+    ('plan_tier2', 'tier_2', 'Professional', '999/month', 'For growing teams that need AI and collaboration features.',     'Start free trial','["5 repositories","5 members","AI Q&A","Team collaboration"]',          '["read_repo","ask_ai"]',               5,   5,   1, 2),
+    ('plan_tier3', 'tier_3', 'Enterprise',   'Custom',    'For larger organizations managing many repositories and members.', 'Contact sales',  '["Unlimited repositories","Unlimited members","AI Q&A","Multi-repo insights"]', '["read_repo","ask_ai","multi_repo"]', 999, 999, 0, 3);
 
 -- ─────────────────────────────────────────
 -- USERS

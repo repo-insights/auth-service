@@ -821,6 +821,9 @@ components:
         plan_name:
           type: string
           title: Plan Name
+        price:
+          type: string
+          title: Price
         description:
           type: string
           title: Description
@@ -856,6 +859,7 @@ components:
         - name
         - display_name
         - plan_name
+        - price
         - description
         - button_text
         - features
@@ -972,6 +976,9 @@ components:
         plan_name:
           type: string
           title: Plan Name
+        price:
+          type: string
+          title: Price
         description:
           type: string
           title: Description
@@ -1013,6 +1020,7 @@ components:
         - plan_id
         - plan_code
         - plan_name
+        - price
         - description
         - button_text
         - features

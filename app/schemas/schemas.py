@@ -214,6 +214,7 @@ class PlanResponse(BaseModel):
     name: str
     display_name: str
     plan_name: str
+    price: str
     description: str
     button_text: str
     features: list[str]
@@ -230,6 +231,7 @@ class SubscriptionResponse(BaseModel):
     plan_id: str
     plan_code: str
     plan_name: str
+    price: str
     description: str
     button_text: str
     features: list[str]
