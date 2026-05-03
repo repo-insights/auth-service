@@ -1,1 +1,1 @@
-# repoinsight-auth
+# app/__init__.py

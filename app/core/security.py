@@ -1,167 +1,143 @@
 """
-Security module — password hashing, JWT issuance/validation, token helpers.
-Never import from routes directly; always inject via FastAPI dependencies.
+app/core/security.py
+─────────────────────
+JWT creation/verification (RSA asymmetric) and password hashing utilities.
 """
 
-from __future__ import annotations
-
-import hashlib
-import secrets
-import uuid
-from datetime import datetime, timezone
-from typing import Any
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
+from uuid import UUID
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
 from app.core.config import settings
-from app.schemas.schemas import JWTPayload
+from app.core.exceptions import InvalidTokenError, TokenExpiredError
 
-# ─────────────────────────────────────────
-# Password hashing
-# ─────────────────────────────────────────
-
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
-
-
-def hash_password(plain: str) -> str:
-    return _pwd_context.hash(plain)
-
-
-def verify_password(plain: str, hashed: str) -> bool:
-    return _pwd_context.verify(plain, hashed)
+# ── Password hashing ──────────────────────────────────────────────────────────
+# Argon2 is the primary hasher; bcrypt is the fallback for migration support.
+pwd_context = CryptContext(
+    schemes=["argon2", "bcrypt"],
+    deprecated="auto",
+    argon2__memory_cost=65536,   # 64 MB
+    argon2__time_cost=3,
+    argon2__parallelism=4,
+)
 
 
-# ─────────────────────────────────────────
-# Token hashing (for DB storage — never store raw tokens)
-# ─────────────────────────────────────────
-
-def sha256_hex(value: str) -> str:
-    return hashlib.sha256(value.encode()).hexdigest()
+def hash_password(plain_password: str) -> str:
+    """Hash a plain-text password using Argon2."""
+    return pwd_context.hash(plain_password)
 
 
-def generate_opaque_token(nbytes: int = 48) -> str:
-    """URL-safe random token (e.g. for refresh & email-verification tokens)."""
-    return secrets.token_urlsafe(nbytes)
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a plain-text password against a stored hash."""
+    return pwd_context.verify(plain_password, hashed_password)
 
 
-# ─────────────────────────────────────────
-# JWT — Access token
-# ─────────────────────────────────────────
+# ── JWT helpers ───────────────────────────────────────────────────────────────
+
+TokenPayload = Dict[str, Any]
+
+
+def _utcnow() -> datetime:
+    return datetime.now(tz=timezone.utc)
+
 
 def create_access_token(
-    user_id: str,
-    email: str,
-    name: str,
-    tenant_id: str,
-    team_id: str | None,
+    *,
+    user_id: UUID,
     role: str,
-    plan: str,
-    customer_id: str | None,
-    permissions: list[str],
-    token_version: int,
-) -> tuple[str, JWTPayload]:
+    scopes: List[str],
+    extra_claims: Optional[Dict[str, Any]] = None,
+) -> str:
     """
-    Mint a signed JWT. Returns (raw_token, decoded_payload).
-    The decoded payload can be cached / used for immediate response.
-    """
-    now = int(datetime.now(timezone.utc).timestamp())
-    expire = now + settings.jwt_access_token_expire_minutes * 60
-    jti = str(uuid.uuid4())
+    Create a signed JWT access token.
 
-    payload = {
-        "sub": user_id,
-        "email": email,
-        "name": name,
-        "tenant_id": tenant_id,
-        "team_id": team_id,
+    Payload structure:
+        sub   – user UUID (string)
+        role  – user role string
+        scopes – list of permission strings
+        type  – "access"
+        iat   – issued-at timestamp
+        exp   – expiry timestamp
+    """
+    now = _utcnow()
+    expire = now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+
+    payload: TokenPayload = {
+        "sub": str(user_id),
         "role": role,
-        "plan": plan,
-        "customer_id": customer_id,
-        "permissions": permissions,
-        "token_version": token_version,
+        "scopes": scopes,
+        "type": "access",
         "iat": now,
         "exp": expire,
-        "iss": settings.jwt_issuer,
-        "aud": settings.jwt_audience,
-        "jti": jti,
     }
+    if extra_claims:
+        payload.update(extra_claims)
 
-    token = jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
-    parsed = JWTPayload(**payload)
-    return token, parsed
-
-
-def decode_access_token(token: str) -> dict[str, Any]:
-    """
-    Decode and validate a JWT.
-    Raises jose.JWTError on any validation failure.
-    """
-    return jwt.decode(
-        token,
-        settings.jwt_secret_key,
-        algorithms=[settings.jwt_algorithm],
-        audience=settings.jwt_audience,
-        issuer=settings.jwt_issuer,
+    return jwt.encode(
+        payload,
+        settings.jwt_private_key,
+        algorithm=settings.JWT_ALGORITHM,
     )
 
 
-# ─────────────────────────────────────────
-# Refresh token
-# ─────────────────────────────────────────
-
-def create_refresh_token() -> tuple[str, str]:
+def create_refresh_token(*, user_id: UUID, session_id: str) -> str:
     """
-    Returns (raw_token, token_hash).
-    Store only the hash in DB/Redis; send the raw token to the client.
+    Create a signed JWT refresh token.
+
+    The session_id ties this token to a specific DB row so it can be
+    invalidated without affecting other sessions (multi-device support).
     """
-    raw = generate_opaque_token(64)
-    return raw, sha256_hex(raw)
+    now = _utcnow()
+    expire = now + timedelta(hours=settings.REFRESH_TOKEN_EXPIRE_HOURS)
 
-
-# ─────────────────────────────────────────
-# S2S token
-# ─────────────────────────────────────────
-
-def create_s2s_token(service_name: str) -> tuple[str, int]:
-    """
-    Mint a service-to-service JWT.
-    Returns (raw_token, expires_in_seconds).
-    """
-    now = int(datetime.now(timezone.utc).timestamp())
-    expire = now + settings.s2s_token_expire_minutes * 60
-
-    payload = {
-        "service_name": service_name,
-        "issued_at": now,
-        "expiry": expire,
-        "issuer": settings.jwt_issuer,
+    payload: TokenPayload = {
+        "sub": str(user_id),
+        "session_id": session_id,
+        "type": "refresh",
         "iat": now,
         "exp": expire,
-        "iss": settings.jwt_issuer,
-        "aud": settings.jwt_audience,
-        "jti": str(uuid.uuid4()),
     }
 
-    token = jwt.encode(payload, settings.s2s_secret_key, algorithm=settings.jwt_algorithm)
-    return token, settings.s2s_token_expire_minutes * 60
-
-
-def decode_s2s_token(token: str) -> dict[str, Any]:
-    return jwt.decode(
-        token,
-        settings.s2s_secret_key,
-        algorithms=[settings.jwt_algorithm],
-        audience=settings.jwt_audience,
-        issuer=settings.jwt_issuer,
+    return jwt.encode(
+        payload,
+        settings.jwt_private_key,
+        algorithm=settings.JWT_ALGORITHM,
     )
 
 
-# ─────────────────────────────────────────
-# Email-verification token
-# ─────────────────────────────────────────
+def decode_token(token: str) -> TokenPayload:
+    """
+    Decode and validate a JWT token.
 
-def create_email_verification_token() -> tuple[str, str]:
-    """Returns (raw_token, sha256_hash)."""
-    raw = generate_opaque_token(32)
-    return raw, sha256_hex(raw)
+    Raises:
+        TokenExpiredError: if the token has expired.
+        InvalidTokenError: for any other verification failure.
+    """
+    try:
+        payload = jwt.decode(
+            token,
+            settings.jwt_public_key,
+            algorithms=[settings.JWT_ALGORITHM],
+        )
+        return payload
+    except JWTError as exc:
+        if "expired" in str(exc).lower():
+            raise TokenExpiredError("Token has expired") from exc
+        raise InvalidTokenError(f"Token validation failed: {exc}") from exc
+
+
+def decode_access_token(token: str) -> TokenPayload:
+    payload = decode_token(token)
+    if payload.get("type") != "access":
+        raise InvalidTokenError("Expected an access token")
+    return payload
+
+
+def decode_refresh_token(token: str) -> TokenPayload:
+    payload = decode_token(token)
+    if payload.get("type") != "refresh":
+        raise InvalidTokenError("Expected a refresh token")
+    return payload

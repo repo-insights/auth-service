@@ -1,182 +1,187 @@
-"""Auth endpoints — signup, login, Google SSO, token refresh, logout."""
+"""
+app/api/v1/endpoints/auth.py
+─────────────────────────────
+Auth endpoints:
+  POST /auth/signup
+  POST /auth/login
+  POST /auth/google
+  POST /auth/refresh
+  POST /auth/logout
+"""
 
-from __future__ import annotations
+from fastapi import APIRouter, Depends, Request, status
 
-import time
-from typing import Annotated
-
-from fastapi import APIRouter, Cookie, Depends, Header, Request, Response, status
-from fastapi.responses import RedirectResponse
-
-from app.core.config import settings
-from app.core.dependencies import get_current_active_user, rate_limit
-from app.schemas.schemas import (
-    EmailVerifyRequest,
+from app.api.dependencies import (
+    get_auth_service,
+    get_client_ip,
+    get_current_user,
+    get_device_info,
+)
+from app.core.logging import get_logger
+from app.models.user import User
+from app.schemas.auth import (
+    GoogleAuthRequest,
     LoginRequest,
+    LogoutRequest,
     MessageResponse,
-    RefreshRequest,
-    ResendVerificationRequest,
-    S2STokenRequest,
-    S2STokenResponse,
+    RefreshTokenRequest,
     SignupRequest,
     SignupResponse,
-    TokenPair,
+    TokenResponse,
+    UserResponse,
 )
-from app.services import auth_service
-from app.core.security import create_s2s_token
+from app.services.auth_service import AuthService
 
-router = APIRouter(prefix="/auth", tags=["Auth"])
+logger = get_logger(__name__)
 
-# Rate-limit dependencies
-_login_limit = rate_limit("login", max_requests=5, window_seconds=60)
-_signup_limit = rate_limit("signup", max_requests=3, window_seconds=60)
+router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-
-# ─────────────────────────────────────────
-# Signup
-# ─────────────────────────────────────────
 
 @router.post(
     "/signup",
-    status_code=status.HTTP_201_CREATED,
     response_model=SignupResponse,
-    dependencies=[Depends(_signup_limit)],
+    status_code=status.HTTP_201_CREATED,
+    summary="Register a new user account",
 )
-async def signup(data: SignupRequest, request: Request) -> SignupResponse:
-    return await auth_service.signup(data, request)
-
-
-# ─────────────────────────────────────────
-# Email verification
-# ─────────────────────────────────────────
-
-@router.post("/verify-email")
-async def verify_email(body: EmailVerifyRequest) -> MessageResponse:
-    result = await auth_service.verify_email(body.token)
-    return MessageResponse(**result)
-
-
-@router.post("/resend-verification")
-async def resend_verification(body: ResendVerificationRequest) -> MessageResponse:
-    result = await auth_service.resend_verification(body.email)
-    return MessageResponse(**result)
-
-
-# ─────────────────────────────────────────
-# Email/password login
-# ─────────────────────────────────────────
-
-@router.post("/login/{tenant_slug}", dependencies=[Depends(_login_limit)])
-async def login(
-    tenant_slug: str,
-    data: LoginRequest,
+async def signup(
+    body: SignupRequest,
     request: Request,
-    response: Response,
-) -> TokenPair:
-    token_pair, raw_refresh = await auth_service.login(data, tenant_slug, request)
-    _set_refresh_cookie(response, raw_refresh)
-    return token_pair
+    auth_service: AuthService = Depends(get_auth_service),
+    device_info: str | None = Depends(get_device_info),
+) -> SignupResponse:
+    """
+    Create a new user with email + password.
 
-
-# ─────────────────────────────────────────
-# Google OAuth
-# ─────────────────────────────────────────
-
-@router.get("/google")
-async def google_login() -> RedirectResponse:
-    url = auth_service.build_google_url()
-    return RedirectResponse(url)
-
-
-@router.get("/google/callback")
-async def google_callback(code: str, request: Request, response: Response) -> TokenPair:
-    token_pair, raw_refresh = await auth_service.handle_google_callback(code, request)
-    _set_refresh_cookie(response, raw_refresh)
-    return token_pair
-
-
-# ─────────────────────────────────────────
-# Token refresh
-# ─────────────────────────────────────────
-
-@router.post("/refresh")
-async def refresh_token(
-    request: Request,
-    response: Response,
-    refresh_token_cookie: Annotated[str | None, Cookie(alias="refresh_token")] = None,
-    body: RefreshRequest | None = None,
-) -> TokenPair:
-    raw_refresh = refresh_token_cookie or (body.refresh_token if body else None)
-    if not raw_refresh:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=401, detail="No refresh token provided")
-
-    token_pair, new_raw = await auth_service.refresh_tokens(raw_refresh, request)
-    _set_refresh_cookie(response, new_raw)
-    return token_pair
-
-
-# ─────────────────────────────────────────
-# Logout
-# ─────────────────────────────────────────
-
-@router.post("/logout")
-async def logout(
-    response: Response,
-    current_user: dict = Depends(get_current_active_user),
-    refresh_token_cookie: Annotated[str | None, Cookie(alias="refresh_token")] = None,
-    body: RefreshRequest | None = None,
-) -> MessageResponse:
-    raw_refresh = refresh_token_cookie or (body.refresh_token if body else "")
-    jwt_payload = current_user["_jwt"]
-    jti = jwt_payload.get("jti", "")
-    exp = jwt_payload.get("exp", 0)
-    ttl = max(0, int(exp - time.time()))
-
-    result = await auth_service.logout(raw_refresh, jti, ttl)
-    _clear_refresh_cookie(response)
-    return MessageResponse(**result)
-
-
-@router.post("/logout-all")
-async def logout_all(
-    response: Response,
-    current_user: dict = Depends(get_current_active_user),
-) -> MessageResponse:
-    result = await auth_service.logout_all(current_user["id"])
-    _clear_refresh_cookie(response)
-    return MessageResponse(**result)
-
-
-# ─────────────────────────────────────────
-# S2S Token
-# ─────────────────────────────────────────
-
-@router.post("/s2s/token")
-async def issue_s2s_token(body: S2STokenRequest) -> S2STokenResponse:
-    if body.s2s_secret != settings.s2s_secret_key:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid S2S secret")
-    token, expires_in = create_s2s_token(body.service_name)
-    return S2STokenResponse(token=token, expires_in=expires_in)
-
-
-# ─────────────────────────────────────────
-# Cookie helpers (httpOnly, Secure, SameSite=Lax)
-# ─────────────────────────────────────────
-
-def _set_refresh_cookie(response: Response, raw_token: str) -> None:
-    max_age = settings.jwt_refresh_token_expire_hours * 3600
-    response.set_cookie(
-        key="refresh_token",
-        value=raw_token,
-        httponly=True,
-        secure=settings.app_env != "development",
-        samesite="lax",
-        max_age=max_age,
-        path="/api/v1/auth/refresh",
+    - Validates password strength
+    - Hashes password with Argon2
+    - Issues access + refresh token pair
+    """
+    ip = get_client_ip(request)
+    user, tokens = await auth_service.signup(
+        email=body.email,
+        password=body.password,
+        device_info=device_info,
+        ip_address=ip,
+    )
+    return SignupResponse(
+        message="Account created successfully. Please verify your email.",
+        user=UserResponse.model_validate(user),
+        # Embed tokens in the response body so the client can store them
+        # In production you may prefer HttpOnly cookies instead
     )
 
 
-def _clear_refresh_cookie(response: Response) -> None:
-    response.delete_cookie(key="refresh_token", path="/api/v1/auth/refresh")
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+    summary="Login with email and password",
+)
+async def login(
+    body: LoginRequest,
+    request: Request,
+    auth_service: AuthService = Depends(get_auth_service),
+    device_info: str | None = Depends(get_device_info),
+) -> TokenResponse:
+    """
+    Authenticate with email + password.
+
+    - Checks account lock status
+    - Verifies password hash
+    - Returns access + refresh token pair
+    - Tracks failed attempts; locks account after threshold
+    """
+    ip = get_client_ip(request)
+    return await auth_service.login(
+        email=body.email,
+        password=body.password,
+        device_info=device_info,
+        ip_address=ip,
+    )
+
+
+@router.post(
+    "/google",
+    response_model=TokenResponse,
+    summary="Login or register via Google OAuth",
+)
+async def google_auth(
+    body: GoogleAuthRequest,
+    request: Request,
+    auth_service: AuthService = Depends(get_auth_service),
+    device_info: str | None = Depends(get_device_info),
+) -> TokenResponse:
+    """
+    Authenticate using a Google ID token.
+
+    - Verifies the ID token with Google's public keys
+    - Creates account if first login
+    - Links Google identity to existing email account if present
+    - Returns access + refresh token pair
+    """
+    ip = get_client_ip(request)
+    return await auth_service.google_login(
+        id_token=body.id_token,
+        device_info=device_info,
+        ip_address=ip,
+    )
+
+
+@router.post(
+    "/refresh",
+    response_model=TokenResponse,
+    summary="Rotate refresh token and issue new token pair",
+)
+async def refresh_tokens(
+    body: RefreshTokenRequest,
+    request: Request,
+    auth_service: AuthService = Depends(get_auth_service),
+    device_info: str | None = Depends(get_device_info),
+) -> TokenResponse:
+    """
+    Exchange a valid refresh token for a new access + refresh token pair.
+
+    - Validates the refresh JWT
+    - Checks DB to ensure token is not revoked/expired
+    - Implements rotation: old token is immediately invalidated
+    - Detects token reuse and revokes all sessions as a security measure
+    """
+    ip = get_client_ip(request)
+    return await auth_service.refresh_tokens(
+        raw_refresh_token=body.refresh_token,
+        device_info=device_info,
+        ip_address=ip,
+    )
+
+
+@router.post(
+    "/logout",
+    response_model=MessageResponse,
+    summary="Invalidate the current session",
+)
+async def logout(
+    body: LogoutRequest,
+    auth_service: AuthService = Depends(get_auth_service),
+) -> MessageResponse:
+    """
+    Revoke the provided refresh token (single-device logout).
+    The corresponding access token will naturally expire.
+    """
+    await auth_service.logout(raw_refresh_token=body.refresh_token)
+    return MessageResponse(message="Logged out successfully")
+
+
+@router.post(
+    "/logout-all",
+    response_model=MessageResponse,
+    summary="Invalidate all sessions for the current user",
+)
+async def logout_all(
+    current_user: User = Depends(get_current_user),
+    auth_service: AuthService = Depends(get_auth_service),
+) -> MessageResponse:
+    """
+    Revoke ALL refresh tokens for the authenticated user (logout everywhere).
+    Requires a valid access token.
+    """
+    await auth_service.logout_all_devices(user_id=current_user.id)
+    return MessageResponse(message="All sessions terminated successfully")

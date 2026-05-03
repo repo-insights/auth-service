@@ -1,13 +1,85 @@
 version: "3.9"
 
 services:
-  auth:
+  # ─────────────────────────────────────────
+  # FastAPI Application
+  # ─────────────────────────────────────────
+  app:
     build:
       context: .
-      dockerfile: Dockerfile
-    ports:
-      - "8000:8000"
+      target: production
+    container_name: auth_app
+    restart: unless-stopped
     env_file: .env
+    ports:
+      - "${APP_PORT:-8000}:${APP_PORT:-8000}"
     volumes:
-      - .:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      - ./keys:/app/keys:ro          # RSA key pair (read-only inside container)
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - auth_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ─────────────────────────────────────────
+  # PostgreSQL
+  # ─────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: auth_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-authdb}
+      POSTGRES_USER: ${POSTGRES_USER:-authuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-supersecretpassword}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-authuser} -d ${POSTGRES_DB:-authdb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - auth_network
+
+  # ─────────────────────────────────────────
+  # Redis
+  # ─────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: auth_redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass "${REDIS_PASSWORD:-}"
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - auth_network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  auth_network:
+    driver: bridge

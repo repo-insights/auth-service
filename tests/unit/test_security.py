@@ -1,135 +1,150 @@
-"""Unit tests for core security utilities."""
-
-from __future__ import annotations
+"""
+tests/unit/test_security.py
+────────────────────────────
+Unit tests for JWT creation/verification and password hashing.
+These tests are pure-Python — no DB, no HTTP.
+"""
 
 import time
-import os
-
-# Provide minimal env so config doesn't crash during import
-os.environ.setdefault("SECRET_KEY", "test-secret")
-os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-key-minimum-32-chars!!")
-os.environ.setdefault("S2S_SECRET_KEY", "test-s2s-secret")
-os.environ.setdefault("TURSO_DATABASE_URL", "libsql://test.turso.io")
-os.environ.setdefault("TURSO_AUTH_TOKEN", "test-token")
-os.environ.setdefault("GOOGLE_CLIENT_ID", "test.apps.googleusercontent.com")
-os.environ.setdefault("GOOGLE_CLIENT_SECRET", "test-secret")
-os.environ.setdefault("GOOGLE_REDIRECT_URI", "http://localhost:8000/callback")
-os.environ.setdefault("SMTP_HOST", "smtp.test.com")
-os.environ.setdefault("SMTP_USER", "user")
-os.environ.setdefault("SMTP_PASSWORD", "pass")
-os.environ.setdefault("EMAIL_FROM", "noreply@test.com")
+import uuid
+from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 import pytest
-from jose import jwt as jose_jwt
+from jose import jwt
 
+from app.core.exceptions import InvalidTokenError, TokenExpiredError
 from app.core.security import (
     create_access_token,
-    create_email_verification_token,
     create_refresh_token,
-    create_s2s_token,
     decode_access_token,
+    decode_refresh_token,
     hash_password,
-    sha256_hex,
     verify_password,
 )
-from app.core.config import settings
+
+# ── Fixtures ──────────────────────────────────────────────────────────────────
+
+@pytest.fixture(scope="module")
+def user_id() -> uuid.UUID:
+    return uuid.UUID("12345678-1234-5678-1234-567812345678")
 
 
-# ─── Password hashing ────────────────────────────────────────────────────────
-
-def test_hash_and_verify_password():
-    plain = "SecurePass1!"
-    hashed = hash_password(plain)
-    assert hashed != plain
-    assert verify_password(plain, hashed)
-
-
-def test_wrong_password_fails():
-    assert not verify_password("WrongPass1!", hash_password("SecurePass1!"))
-
-
-# ─── SHA-256 ─────────────────────────────────────────────────────────────────
-
-def test_sha256_is_deterministic():
-    assert sha256_hex("hello") == sha256_hex("hello")
-    assert sha256_hex("hello") != sha256_hex("world")
-
-
-# ─── Access token ────────────────────────────────────────────────────────────
-
-def _make_token(**overrides):
-    defaults = dict(
-        user_id="user-123",
-        email="alice@example.com",
-        name="Alice",
-        tenant_id="tenant-abc",
-        team_id=None,
+@pytest.fixture(scope="module")
+def sample_access_token(user_id) -> str:
+    return create_access_token(
+        user_id=user_id,
         role="user",
-        plan="tier_1",
-        customer_id=None,
-        permissions=["read_repo"],
-        token_version=1,
+        scopes=["read:own"],
     )
-    defaults.update(overrides)
-    return create_access_token(**defaults)
 
 
-def test_access_token_is_valid_jwt():
-    token, payload = _make_token()
-    decoded = decode_access_token(token)
-    assert decoded["sub"] == "user-123"
-    assert decoded["email"] == "alice@example.com"
-    assert decoded["iss"] == settings.jwt_issuer
-    assert decoded["aud"] == settings.jwt_audience
-
-
-def test_access_token_contains_required_fields():
-    token, payload = _make_token(permissions=["read_repo", "ask_ai"], token_version=3)
-    decoded = decode_access_token(token)
-    assert "jti" in decoded
-    assert decoded["token_version"] == 3
-    assert "ask_ai" in decoded["permissions"]
-
-
-def test_access_token_expiry_is_in_future():
-    token, _ = _make_token()
-    decoded = decode_access_token(token)
-    assert decoded["exp"] > time.time()
-
-
-# ─── Refresh token ───────────────────────────────────────────────────────────
-
-def test_refresh_token_is_opaque_and_hashable():
-    raw, token_hash = create_refresh_token()
-    assert len(raw) > 32
-    assert sha256_hex(raw) == token_hash
-
-
-def test_refresh_tokens_are_unique():
-    raw1, _ = create_refresh_token()
-    raw2, _ = create_refresh_token()
-    assert raw1 != raw2
-
-
-# ─── S2S token ───────────────────────────────────────────────────────────────
-
-def test_s2s_token_contains_service_name():
-    token, expires_in = create_s2s_token("repo-service")
-    decoded = jose_jwt.decode(
-        token,
-        settings.s2s_secret_key,
-        algorithms=[settings.jwt_algorithm],
-        audience=settings.jwt_audience,
-        issuer=settings.jwt_issuer,
+@pytest.fixture(scope="module")
+def sample_refresh_token(user_id) -> str:
+    return create_refresh_token(
+        user_id=user_id,
+        session_id="test-session-id",
     )
-    assert decoded["service_name"] == "repo-service"
-    assert decoded["exp"] > time.time()
-    assert expires_in == settings.s2s_token_expire_minutes * 60
 
 
-# ─── Email verification token ────────────────────────────────────────────────
+# ── Password hashing tests ────────────────────────────────────────────────────
 
-def test_email_verification_token():
-    raw, token_hash = create_email_verification_token()
-    assert len(raw) > 20
-    assert sha256_hex(raw) == token_hash
+class TestPasswordHashing:
+    def test_hash_is_not_plaintext(self):
+        plain = "MySecret1!"
+        hashed = hash_password(plain)
+        assert hashed != plain
+
+    def test_correct_password_verifies(self):
+        plain = "MySecret1!"
+        hashed = hash_password(plain)
+        assert verify_password(plain, hashed) is True
+
+    def test_wrong_password_fails(self):
+        hashed = hash_password("MySecret1!")
+        assert verify_password("WrongPassword!", hashed) is False
+
+    def test_empty_password_hashes_without_error(self):
+        # Should not raise — let application layer enforce non-empty
+        hashed = hash_password("")
+        assert isinstance(hashed, str)
+
+    def test_same_password_produces_different_hashes(self):
+        """Argon2 uses a unique salt per hash."""
+        plain = "MySecret1!"
+        h1 = hash_password(plain)
+        h2 = hash_password(plain)
+        assert h1 != h2
+
+    def test_very_long_password(self):
+        long_pw = "Aa1!" * 32  # 128 chars
+        hashed = hash_password(long_pw)
+        assert verify_password(long_pw, hashed) is True
+
+
+# ── Access token tests ────────────────────────────────────────────────────────
+
+class TestAccessToken:
+    def test_creates_valid_token(self, sample_access_token):
+        assert isinstance(sample_access_token, str)
+        assert len(sample_access_token) > 50
+
+    def test_decodes_correct_claims(self, sample_access_token, user_id):
+        payload = decode_access_token(sample_access_token)
+        assert payload["sub"] == str(user_id)
+        assert payload["role"] == "user"
+        assert payload["scopes"] == ["read:own"]
+        assert payload["type"] == "access"
+
+    def test_contains_expiry(self, sample_access_token):
+        payload = decode_access_token(sample_access_token)
+        assert "exp" in payload
+        assert "iat" in payload
+        assert payload["exp"] > payload["iat"]
+
+    def test_expired_token_raises(self, user_id):
+        with patch("app.core.security._utcnow") as mock_now:
+            # Issue token with backdated time so it's already expired
+            mock_now.return_value = datetime.now(tz=timezone.utc) - timedelta(hours=2)
+            expired = create_access_token(
+                user_id=user_id, role="user", scopes=[]
+            )
+        with pytest.raises(TokenExpiredError):
+            decode_access_token(expired)
+
+    def test_refresh_token_rejected_as_access(self, sample_refresh_token):
+        with pytest.raises(InvalidTokenError, match="Expected an access token"):
+            decode_access_token(sample_refresh_token)
+
+    def test_tampered_token_raises(self, sample_access_token):
+        tampered = sample_access_token[:-5] + "XXXXX"
+        with pytest.raises(InvalidTokenError):
+            decode_access_token(tampered)
+
+    def test_garbage_token_raises(self):
+        with pytest.raises(InvalidTokenError):
+            decode_access_token("not.a.jwt")
+
+
+# ── Refresh token tests ───────────────────────────────────────────────────────
+
+class TestRefreshToken:
+    def test_creates_valid_token(self, sample_refresh_token):
+        assert isinstance(sample_refresh_token, str)
+
+    def test_decodes_correct_claims(self, sample_refresh_token, user_id):
+        payload = decode_refresh_token(sample_refresh_token)
+        assert payload["sub"] == str(user_id)
+        assert payload["session_id"] == "test-session-id"
+        assert payload["type"] == "refresh"
+
+    def test_access_token_rejected_as_refresh(self, sample_access_token):
+        with pytest.raises(InvalidTokenError, match="Expected a refresh token"):
+            decode_refresh_token(sample_access_token)
+
+    def test_expired_refresh_token_raises(self, user_id):
+        with patch("app.core.security._utcnow") as mock_now:
+            mock_now.return_value = datetime.now(tz=timezone.utc) - timedelta(days=2)
+            expired = create_refresh_token(user_id=user_id, session_id="s1")
+        with pytest.raises(TokenExpiredError):
+            decode_refresh_token(expired)

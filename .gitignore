@@ -1,0 +1,24 @@
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Environment files
+.env
+.env.*
+
+# Node / Wrangler
+node_modules/
+.wrangler/
+
+# Local runtime artifacts
+*.log
+
+# Generated keys
+keys/*.pem

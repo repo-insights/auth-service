@@ -1,64 +1,82 @@
-"""Google OAuth2 flow — exchange code → tokens → userinfo."""
+"""
+app/services/google_oauth_service.py
+──────────────────────────────────────
+Verifies Google ID tokens using Google's public keys.
+Uses the google-auth library for robust verification.
+"""
 
-from __future__ import annotations
-
-import logging
+from typing import Any, Dict
 
 import httpx
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token as google_id_token
 
 from app.core.config import settings
-from app.schemas.schemas import GoogleUserInfo
+from app.core.exceptions import GoogleAuthError
+from app.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
-GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
-GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
-GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
-
-
-def build_google_auth_url(state: str) -> str:
-    params = {
-        "client_id": settings.google_client_id,
-        "redirect_uri": settings.google_redirect_uri,
-        "response_type": "code",
-        "scope": "openid email profile",
-        "access_type": "offline",
-        "state": state,
-        "prompt": "select_account",
-    }
-    query = "&".join(f"{k}={v}" for k, v in params.items())
-    return f"{GOOGLE_AUTH_URL}?{query}"
+# Google's JWKS / token-info endpoint (fallback verification)
+GOOGLE_TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo"
 
 
-async def exchange_code_for_tokens(code: str) -> dict:
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.post(
-            GOOGLE_TOKEN_URL,
-            data={
-                "client_id": settings.google_client_id,
-                "client_secret": settings.google_client_secret,
-                "code": code,
-                "grant_type": "authorization_code",
-                "redirect_uri": settings.google_redirect_uri,
-            },
+class GoogleOAuthService:
+    async def verify_id_token(self, token: str) -> Dict[str, Any]:
+        """
+        Verify a Google ID token and return its claims.
+
+        Uses google-auth's synchronous verifier (runs in threadpool for async).
+        Falls back to Google's tokeninfo endpoint if client ID not configured.
+
+        Returns a dict with at minimum: sub, email, email_verified.
+        """
+        if not settings.GOOGLE_CLIENT_ID:
+            # Fallback: call Google's tokeninfo endpoint directly
+            return await self._verify_via_tokeninfo(token)
+
+        try:
+            # google-auth is synchronous; wrap in executor for async contexts
+            import asyncio
+            loop = asyncio.get_event_loop()
+            claims = await loop.run_in_executor(
+                None,
+                self._sync_verify,
+                token,
+            )
+            return claims
+        except Exception as exc:
+            logger.warning("google-auth verification failed", error=str(exc))
+            raise GoogleAuthError(f"Google token verification failed: {exc}") from exc
+
+    def _sync_verify(self, token: str) -> Dict[str, Any]:
+        request = google_requests.Request()
+        claims = google_id_token.verify_oauth2_token(
+            token,
+            request,
+            settings.GOOGLE_CLIENT_ID,
         )
-        resp.raise_for_status()
-        return resp.json()
+        if not claims.get("email_verified"):
+            raise GoogleAuthError("Google account email is not verified")
+        return claims
 
+    async def _verify_via_tokeninfo(self, token: str) -> Dict[str, Any]:
+        """Verify by calling Google's tokeninfo endpoint (no client_id required)."""
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                GOOGLE_TOKENINFO_URL,
+                params={"id_token": token},
+            )
 
-async def get_google_user_info(access_token: str) -> GoogleUserInfo:
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(
-            GOOGLE_USERINFO_URL,
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        if response.status_code != 200:
+            raise GoogleAuthError("Google tokeninfo verification failed")
 
-    return GoogleUserInfo(
-        sub=data["sub"],
-        email=data["email"],
-        name=data.get("name", data["email"].split("@")[0]),
-        picture=data.get("picture"),
-        email_verified=data.get("email_verified", False),
-    )
+        data = response.json()
+
+        if "error" in data:
+            raise GoogleAuthError(f"Google error: {data['error']}")
+
+        if not data.get("email_verified") in (True, "true"):
+            raise GoogleAuthError("Google account email is not verified")
+
+        return data

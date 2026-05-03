@@ -1,61 +1,93 @@
-from functools import lru_cache
+"""
+app/core/config.py
+──────────────────
+Central application configuration loaded from environment variables.
+Uses pydantic-settings for type-safe validation.
+"""
 
-from pydantic import AliasChoices, Field
+from functools import lru_cache
+from pathlib import Path
+from typing import List
+
+from pydantic import field_validator, PostgresDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
 
-    # App
-    app_name: str = "repoinsight-auth"
-    app_env: str = "development"
-    debug: bool = False
-    secret_key: str
+    # ── Application ────────────────────────────────────────────────────
+    APP_NAME: str = "AuthService"
+    APP_ENV: str = "development"
+    APP_HOST: str = "0.0.0.0"
+    APP_PORT: int = 8000
+    DEBUG: bool = False
 
-    # JWT
-    jwt_secret_key: str
-    jwt_algorithm: str = "HS256"
-    jwt_access_token_expire_minutes: int = 60
-    jwt_refresh_token_expire_hours: int = 12
-    jwt_issuer: str = "repoinsight-auth"
-    jwt_audience: str = "repoinsight-api"
+    # ── Database ───────────────────────────────────────────────────────
+    DATABASE_URL: str = "postgresql+asyncpg://authuser:password@localhost:5432/authdb"
 
-    # S2S
-    s2s_secret_key: str
-    s2s_token_expire_minutes: int = 10
+    # ── Redis ──────────────────────────────────────────────────────────
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_PASSWORD: str = ""
+    REDIS_DB: int = 0
 
-    # Turso / libsql
-    turso_database_url: str = Field(default="", validation_alias=AliasChoices("TURSO_DATABASE_URL", "D1_DATABASE_URL"))
-    turso_auth_token: str = Field(default="", validation_alias=AliasChoices("TURSO_AUTH_TOKEN", "D1_AUTH_TOKEN"))
-    turso_database_tls: bool = Field(default=True, validation_alias=AliasChoices("TURSO_DATABASE_TLS", "D1_DATABASE_TLS"))
-    turso_ssl_cert_file: str | None = Field(default=None, validation_alias=AliasChoices("TURSO_SSL_CERT_FILE", "D1_SSL_CERT_FILE"))
-    db_backend: str = "libsql"
-    d1_binding_name: str = "DB"
+    @property
+    def redis_url(self) -> str:
+        if self.REDIS_PASSWORD:
+            return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+        return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
 
-    # Google OAuth
-    google_client_id: str
-    google_client_secret: str
-    google_redirect_uri: str
+    # ── JWT ────────────────────────────────────────────────────────────
+    JWT_PRIVATE_KEY_PATH: str = "./keys/private.pem"
+    JWT_PUBLIC_KEY_PATH: str = "./keys/public.pem"
+    JWT_ALGORITHM: str = "RS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REFRESH_TOKEN_EXPIRE_HOURS: int = 24
 
-    # Email
-    smtp_host: str
-    smtp_port: int = 587
-    smtp_user: str
-    smtp_password: str
-    email_from: str
-    email_from_name: str = "RepoInsight"
+    @property
+    def jwt_private_key(self) -> str:
+        return Path(self.JWT_PRIVATE_KEY_PATH).read_text()
 
-    # Frontend
-    frontend_url: str = "http://localhost:3000"
+    @property
+    def jwt_public_key(self) -> str:
+        return Path(self.JWT_PUBLIC_KEY_PATH).read_text()
 
-    # Rate limiting
-    rate_limit_login: str = "5/minute"
-    rate_limit_signup: str = "3/minute"
+    # ── Google OAuth ───────────────────────────────────────────────────
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+
+    # ── GitHub OAuth ───────────────────────────────────────────────────
+    GITHUB_CLIENT_ID: str = ""
+    GITHUB_CLIENT_SECRET: str = ""
+
+    # ── Security ───────────────────────────────────────────────────────
+    MAX_LOGIN_ATTEMPTS: int = 5
+    ACCOUNT_LOCK_MINUTES: int = 30
+
+    # ── Rate Limiting ──────────────────────────────────────────────────
+    RATE_LIMIT_PER_MINUTE: int = 60
+
+    # ── CORS ───────────────────────────────────────────────────────────
+    ALLOWED_ORIGINS: str = "http://localhost:3000"
+
+    @property
+    def allowed_origins_list(self) -> List[str]:
+        return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]
+
+    @property
+    def is_production(self) -> bool:
+        return self.APP_ENV == "production"
 
 
-@lru_cache
+@lru_cache()
 def get_settings() -> Settings:
+    """Cached settings singleton — call this everywhere."""
     return Settings()
 
 
